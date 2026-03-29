@@ -1,0 +1,274 @@
+:root {
+  --bg: #f5efe6;
+  --ink: #182020;
+  --panel: #fff9ef;
+  --accent: #0f8f73;
+  --accent-soft: #b9edd7;
+  --warn: #f26430;
+  --border: #182020;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+}
+
+body {
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 10% 10%, #fff2d8 0%, transparent 45%),
+    radial-gradient(circle at 90% 80%, #daf5ec 0%, transparent 38%),
+    var(--bg);
+  font-family: var(--font-heading), sans-serif;
+}
+
+.shell {
+  width: min(1200px, 94vw);
+  margin: 0 auto;
+  padding: 28px 0 40px;
+}
+
+.hero {
+  margin-bottom: 16px;
+  animation: rise 450ms ease both;
+}
+
+.badge {
+  width: fit-content;
+  margin: 0 0 10px;
+  padding: 6px 10px;
+  border: 2px solid var(--border);
+  background: #ffe6b4;
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
+
+.hero h1 {
+  margin: 0;
+  font-size: clamp(28px, 4.5vw, 52px);
+  line-height: 1.06;
+  max-width: 18ch;
+}
+
+.panel {
+  border: 2px solid var(--border);
+  border-radius: 18px;
+  background: var(--panel);
+  box-shadow: 6px 6px 0 #18202022;
+}
+
+.token-panel {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr;
+  gap: 12px;
+  align-items: center;
+  padding: 16px;
+  margin-bottom: 16px;
+  animation: rise 550ms ease both;
+}
+
+.token-panel h2,
+.gated h2,
+.list-panel h2,
+.editor-panel h2,
+.comments-panel h2 {
+  margin: 0 0 6px;
+}
+
+.token-panel p,
+.gated p {
+  margin: 0;
+  color: #2e3a3a;
+}
+
+input,
+textarea,
+button {
+  font: inherit;
+}
+
+input,
+textarea {
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+  padding: 10px 12px;
+}
+
+button {
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  padding: 9px 14px;
+  background: var(--accent-soft);
+  cursor: pointer;
+}
+
+button:hover {
+  transform: translateY(-1px);
+}
+
+.gated {
+  padding: 16px;
+  margin-bottom: 16px;
+  background: #ffe9df;
+  border-color: var(--warn);
+}
+
+.workspace-grid {
+  display: grid;
+  grid-template-columns: 300px 1fr 340px;
+  gap: 14px;
+  align-items: start;
+}
+
+.list-panel,
+.editor-panel,
+.comments-panel {
+  padding: 14px;
+  min-height: 520px;
+  animation: rise 650ms ease both;
+}
+
+.list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.doc-group {
+  margin-top: 14px;
+}
+
+.doc-group h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.doc-item {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  gap: 2px;
+  margin-bottom: 8px;
+  background: #ffffff;
+}
+
+.doc-item.active {
+  background: #d6f5e7;
+}
+
+.doc-item span,
+.doc-item small,
+.editor-meta,
+.comment-item span,
+.empty {
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+}
+
+.editor-panel {
+  background: linear-gradient(180deg, #fffdf9 0%, #fff6eb 100%);
+}
+
+.editor-header {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.editor-header input {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.editor-panel textarea {
+  width: 100%;
+  min-height: 390px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.editor-meta {
+  margin: 8px 0 0;
+}
+
+.comments-panel {
+  background: #f8fffb;
+}
+
+.comment-list {
+  height: 406px;
+  overflow: auto;
+  padding-right: 6px;
+}
+
+.comment-item {
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+  padding: 10px;
+  margin-bottom: 8px;
+}
+
+.comment-item div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.comment-item p {
+  margin: 8px 0 0;
+}
+
+.comments-panel form {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
+.empty-editor {
+  display: grid;
+  place-content: center;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 1080px) {
+  .workspace-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .list-panel,
+  .editor-panel,
+  .comments-panel {
+    min-height: auto;
+  }
+
+  .comment-list {
+    height: 260px;
+  }
+
+  .token-panel {
+    grid-template-columns: 1fr;
+  }
+}
