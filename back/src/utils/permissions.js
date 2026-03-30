@@ -1,9 +1,8 @@
-import mongoose from "mongoose";
 import Document from "../models/Document.js";
 import Share from "../models/Share.js";
 
 export function ensureObjectId(id, fieldName = "id") {
-  if (!mongoose.Types.ObjectId.isValid(id)) {
+  if (!/^\d+$/.test(String(id))) {
     throw new Error(`Invalid ${fieldName}`);
   }
 }
@@ -17,7 +16,7 @@ export async function ensureDocumentExists(documentId) {
 }
 
 export async function canAccessDocument(userId, documentId) {
-  const document = await Document.findById(documentId).select("owner");
+  const document = await Document.findById(documentId);
   if (!document) {
     return false;
   }

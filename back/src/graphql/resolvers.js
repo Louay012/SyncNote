@@ -30,7 +30,7 @@ function dateValue(value) {
 }
 
 async function canEditDocument(userId, documentId) {
-  const document = await Document.findById(documentId).select("owner");
+  const document = await Document.findById(documentId);
   if (!document) {
     return false;
   }
@@ -74,39 +74,19 @@ export const resolvers = {
 
     myDocuments: async (_, __, contextValue) => {
       const user = requireAuth(contextValue);
-      return Document.find({ owner: user.id }).sort({ updatedAt: -1 });
+      return Document.findByOwner(user.id);
     },
 
     sharedWithMeDocuments: async (_, __, contextValue) => {
       const user = requireAuth(contextValue);
-      const shares = await Share.find({ user: user.id }).select("document");
+      const shares = await Share.find({ user: user.id });
       const docIds = shares.map((share) => share.document);
-      return Document.find({ _id: { $in: docIds } }).sort({ updatedAt: -1 });
+      return Document.findByIds(docIds);
     },
 
     searchDocuments: async (_, { keyword }, contextValue) => {
       const user = requireAuth(contextValue);
-      const shares = await Share.find({ user: user.id }).select("document");
-      const sharedDocIds = shares.map((share) => share.document);
-
-      const query = {
-        $and: [
-          {
-            $or: [
-              { owner: user.id },
-              { _id: { $in: sharedDocIds } }
-            ]
-          },
-          {
-            $or: [
-              { title: { $regex: keyword, $options: "i" } },
-              { content: { $regex: keyword, $options: "i" } }
-            ]
-          }
-        ]
-      };
-
-      return Document.find(query).sort({ updatedAt: -1 });
+      return Document.searchAccessible(user.id, keyword);
     }
   },
 
@@ -234,15 +214,13 @@ export const resolvers = {
 
       await ensureDocumentOwner(user.id, documentId);
 
-      const collaborator = await User.findOne({
-        email: userEmail.toLowerCase()
-      }).select("_id");
+      const collaborator = await User.findOne({ email: userEmail.toLowerCase() });
 
       if (!collaborator) {
         throw new Error("Collaborator not found");
       }
 
-      if (String(collaborator._id) === String(user.id)) {
+      if (String(collaborator.id) === String(user.id)) {
         throw new Error("Owner already has access");
       }
 
@@ -251,7 +229,7 @@ export const resolvers = {
       }
 
       const share = await Share.findOneAndUpdate(
-        { document: documentId, user: collaborator._id },
+        { document: documentId, user: collaborator.id },
         { permission },
         { new: true, upsert: true, setDefaultsOnInsert: true }
       );
@@ -292,12 +270,12 @@ export const resolvers = {
     owner: async (doc) => User.findById(doc.owner),
 
     collaborators: async (doc) => {
-      const shares = await Share.find({ document: doc.id }).populate("user");
-      return shares.map((share) => share.user).filter(Boolean);
+      const shares = await Share.find({ document: doc.id });
+      const userIds = shares.map((share) => share.user);
+      return User.findByIds(userIds);
     },
 
-    comments: async (doc) =>
-      Comment.find({ document: doc.id }).sort({ createdAt: -1 })
+    comments: async (doc) => Comment.find({ document: doc.id })
   },
 
   Comment: {

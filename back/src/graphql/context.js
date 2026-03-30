@@ -7,7 +7,7 @@ export async function buildContext(authHeader) {
     return { currentUser: null };
   }
 
-  const currentUser = await User.findById(userId).select("_id name email");
+  const currentUser = await User.findById(userId);
   return { currentUser };
 }
 

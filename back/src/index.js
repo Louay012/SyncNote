@@ -6,12 +6,12 @@ import http from "http";
 import { useServer } from "graphql-ws/lib/use/ws";
 import { WebSocketServer } from "ws";
 import { env } from "./config/env.js";
-import { connectMongo } from "./db/mongo.js";
+import { connectPostgres } from "./db/postgres.js";
 import { buildContext } from "./graphql/context.js";
 import { schema } from "./graphql/schema.js";
 
 async function startServer() {
-  await connectMongo();
+  await connectPostgres();
 
   const app = express();
   const httpServer = http.createServer(app);

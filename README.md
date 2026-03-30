@@ -7,7 +7,7 @@ SyncNote includes:
 
 ## Tech Stack
 
-- Backend: Node.js + Express + Apollo Server + MongoDB
+- Backend: Node.js + Express + Apollo Server + PostgreSQL
 - Frontend: Next.js + React + Apollo Client
 - Real-time: GraphQL Subscriptions over WebSocket
 - Auth: JWT (token input in frontend for now; auth screens can be added later)
@@ -32,7 +32,7 @@ back/
     config/
       env.js
     db/
-      mongo.js
+      postgres.js
     graphql/
       context.js
       pubsub.js
@@ -79,11 +79,22 @@ Copy `back/.env.example` to `back/.env` and update values:
 
 ```env
 PORT=4000
-MONGODB_URI=mongodb://127.0.0.1:27017/syncnote
+POSTGRES_URI=postgres://postgres:postgres@127.0.0.1:5432/syncnote
+# Optional: admin DB used only by npm run db:setup
+# POSTGRES_ADMIN_URI=postgres://postgres:postgres@127.0.0.1:5432/postgres
 JWT_SECRET=change_this_secret
 JWT_EXPIRES_IN=7d
 CORS_ORIGIN=http://localhost:3000
 ```
+
+Initialize PostgreSQL database and schema:
+
+```bash
+cd back
+npm run db:setup
+```
+
+The schema is defined in `back/src/db/schema.sql` and applied by both backend startup and `db:setup`.
 
 ### 3. Configure frontend environment
 

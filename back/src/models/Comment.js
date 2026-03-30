@@ -1,28 +1,42 @@
-import mongoose from "mongoose";
+import { query } from "../db/postgres.js";
+import { mapComment } from "./_shared.js";
 
-const commentSchema = new mongoose.Schema(
-  {
-    text: {
-      type: String,
-      required: true,
-      trim: true
-    },
-    author: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true,
-      index: true
-    },
-    document: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Document",
-      required: true,
-      index: true
-    }
+const baseSelect =
+  "SELECT id, text, author_id, document_id, created_at, updated_at FROM comments";
+
+const Comment = {
+  async create({ text, author, document }) {
+    const { rows } = await query(
+      `
+        INSERT INTO comments(text, author_id, document_id)
+        VALUES ($1, $2, $3)
+        RETURNING id, text, author_id, document_id, created_at, updated_at
+      `,
+      [text, author, document]
+    );
+
+    return mapComment(rows[0]);
   },
-  { timestamps: true }
-);
 
-const Comment = mongoose.model("Comment", commentSchema);
+  async deleteMany(filter = {}) {
+    if (!filter.document) {
+      return;
+    }
+
+    await query("DELETE FROM comments WHERE document_id = $1", [filter.document]);
+  },
+
+  async find(filter = {}) {
+    if (filter.document) {
+      const { rows } = await query(
+        `${baseSelect} WHERE document_id = $1 ORDER BY created_at DESC`,
+        [filter.document]
+      );
+      return rows.map(mapComment);
+    }
+
+    return [];
+  }
+};
 
 export default Comment;

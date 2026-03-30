@@ -1,18 +1,19 @@
 {
   "name": "syncnote-api",
   "version": "1.0.0",
-  "description": "SyncNote collaborative document management API using GraphQL, MongoDB, and subscriptions",
+  "description": "SyncNote collaborative document management API using GraphQL, PostgreSQL, and subscriptions",
   "main": "src/index.js",
   "type": "module",
   "scripts": {
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
+    "db:setup": "node scripts/setup-postgres.js",
     "lint": "echo \"No lint configured\""
   },
   "keywords": [
     "graphql",
     "apollo",
-    "mongodb",
+    "postgresql",
     "subscriptions",
     "collaboration"
   ],
@@ -29,7 +30,7 @@
     "graphql-subscriptions": "^2.0.0",
     "graphql-ws": "^5.16.2",
     "jsonwebtoken": "^9.0.2",
-    "mongoose": "^8.5.1",
+    "pg": "^8.13.1",
     "ws": "^8.18.0"
   },
   "devDependencies": {
