@@ -134,6 +134,18 @@ Frontend URL:
 
 - `http://localhost:3000`
 
+### Run both backend and frontend together (Windows)
+
+From project root, run:
+
+```bat
+run-servers.bat
+```
+
+This installs dependencies in `back` and `front/back`, then opens two terminals:
+- backend: `npm run dev` in `back`
+- frontend: `npm run dev` in `front/back`
+
 Paste a JWT token into the token field to use authenticated operations.
 
 ## GraphQL API
