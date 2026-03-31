@@ -12,11 +12,13 @@ for %%P in (3000 4000) do (
 )
 
 echo [1/4] Installing backend dependencies...
-call npm --prefix back install
+cd /d "%~dp0back"
+call npm install
 if errorlevel 1 goto :error
 
 echo [2/4] Installing frontend dependencies...
-call npm --prefix front install
+cd /d "%~dp0front"
+call npm install
 if errorlevel 1 goto :error
 
 echo [3/4] Starting backend server in a new terminal...
