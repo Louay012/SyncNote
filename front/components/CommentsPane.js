@@ -6,7 +6,13 @@ function fmt(dateString) {
   return new Date(dateString).toLocaleString();
 }
 
-export default function CommentsPane({ comments, onAdd, loading, disabled }) {
+export default function CommentsPane({
+  comments,
+  onAdd,
+  loading,
+  disabled,
+  sectionLabel
+}) {
   const [text, setText] = useState("");
 
   async function submit(event) {
@@ -20,7 +26,7 @@ export default function CommentsPane({ comments, onAdd, loading, disabled }) {
 
   return (
     <section className="panel comments-panel">
-      <h2>Comments</h2>
+      <h2>{sectionLabel ? `${sectionLabel} comments` : "Comments"}</h2>
       <div className="comment-list">
         {comments.length === 0 ? <p className="empty">No comments yet.</p> : null}
         {comments.map((comment) => (
@@ -29,7 +35,7 @@ export default function CommentsPane({ comments, onAdd, loading, disabled }) {
               <strong>{comment.author.name}</strong>
               <span>{fmt(comment.createdAt)}</span>
             </div>
-            <p>{comment.text}</p>
+            <p>{comment.content || comment.text}</p>
           </article>
         ))}
       </div>
@@ -37,7 +43,7 @@ export default function CommentsPane({ comments, onAdd, loading, disabled }) {
         <input
           value={text}
           onChange={(event) => setText(event.target.value)}
-          placeholder={disabled ? "Select a document first" : "Add a comment"}
+          placeholder={disabled ? "Select a section first" : "Add a comment to this section"}
           disabled={disabled || loading}
         />
         <button type="submit" disabled={disabled || loading}>

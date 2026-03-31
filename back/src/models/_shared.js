@@ -33,13 +33,54 @@ export function mapComment(row) {
     return null;
   }
 
-  return {
+  const mapped = {
     id: String(row.id),
     text: row.text,
+    content: row.text,
     author: String(row.author_id),
-    document: String(row.document_id),
+    section: row.section_id ? String(row.section_id) : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at
+  };
+
+  if (row.document_id !== undefined && row.document_id !== null) {
+    mapped.document = String(row.document_id);
+  }
+
+  return mapped;
+}
+
+export function mapSection(row) {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id: String(row.id),
+    documentId: String(row.document_id),
+    document: String(row.document_id),
+    type: row.type,
+    content: row.content,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+export function mapVersion(row) {
+  if (!row) {
+    return null;
+  }
+
+  const snapshotValue =
+    typeof row.snapshot === "string" ? row.snapshot : JSON.stringify(row.snapshot);
+
+  return {
+    id: String(row.id),
+    documentId: String(row.document_id),
+    snapshot: snapshotValue,
+    snapshotRaw: row.snapshot,
+    createdBy: String(row.created_by),
+    createdAt: row.created_at
   };
 }
 

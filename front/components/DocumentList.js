@@ -11,7 +11,10 @@ function formatTime(dateString) {
 function Group({ title, docs, activeId, onSelect }) {
   return (
     <div className="doc-group">
-      <h3>{title}</h3>
+      <h3>
+        {title}
+        <span className="group-count">{docs.length}</span>
+      </h3>
       {docs.length === 0 ? <p className="empty">No documents</p> : null}
       {docs.map((doc) => (
         <button
@@ -32,9 +35,17 @@ function Group({ title, docs, activeId, onSelect }) {
 export default function DocumentList({
   myDocs,
   sharedDocs,
+  totalMine,
+  totalShared,
+  showingSearch,
+  totalSearch,
   activeId,
   onSelect,
-  onCreate
+  onCreate,
+  onPrevPage,
+  onNextPage,
+  canPrev,
+  canNext
 }) {
   return (
     <aside className="panel list-panel">
@@ -44,6 +55,11 @@ export default function DocumentList({
           New
         </button>
       </div>
+      {showingSearch ? (
+        <p className="list-meta">Search results: {totalSearch}</p>
+      ) : (
+        <p className="list-meta">Mine: {totalMine} | Shared: {totalShared}</p>
+      )}
       <Group
         title="My Documents"
         docs={myDocs}
@@ -56,6 +72,14 @@ export default function DocumentList({
         activeId={activeId}
         onSelect={onSelect}
       />
+      <div className="list-pagination">
+        <button type="button" onClick={onPrevPage} disabled={!canPrev}>
+          Prev
+        </button>
+        <button type="button" onClick={onNextPage} disabled={!canNext}>
+          Next
+        </button>
+      </div>
     </aside>
   );
 }

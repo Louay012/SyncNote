@@ -10,7 +10,7 @@ SyncNote includes:
 - Backend: Node.js + Express + Apollo Server + PostgreSQL
 - Frontend: Next.js + React + Apollo Client
 - Real-time: GraphQL Subscriptions over WebSocket
-- Auth: JWT (token input in frontend for now; auth screens can be added later)
+- Auth: JWT (register/login UI in frontend, plus optional manual token override)
 
 ## Features
 
@@ -19,8 +19,12 @@ SyncNote includes:
 - Document sharing with collaborators
 - Comments on documents
 - Real-time subscriptions for document updates and new comments
+- Built-in login/register workflow in the frontend
+- Search, pagination, and sorting for document discovery
+- Collaborator management (share and unshare by email)
 - Frontend collaborative workspace:
   - Document list (owned and shared)
+  - Search and sort controls
   - Editor panel
   - Comments panel
 
@@ -55,6 +59,7 @@ front/
     layout.js
     page.js
   components/
+    AuthPanel.js
     CommentsPane.js
     DocumentList.js
     EditorPane.js
@@ -85,6 +90,8 @@ POSTGRES_URI=postgres://postgres:postgres@127.0.0.1:5432/syncnote
 JWT_SECRET=change_this_secret
 JWT_EXPIRES_IN=7d
 CORS_ORIGIN=http://localhost:3000
+# Optional in production, defaults to false in production and true otherwise
+# GRAPHQL_INTROSPECTION=false
 ```
 
 Initialize PostgreSQL database and schema:
@@ -133,6 +140,7 @@ npm run dev
 Frontend URL:
 
 - `http://localhost:3000`
+- First page is auth at `http://localhost:3000/auth` (workspace redirects there when not authenticated)
 
 ### Run both backend and frontend together (Windows)
 
@@ -146,16 +154,16 @@ This installs dependencies in `back` and `front`, then opens two terminals:
 - backend: `npm run dev` in `back`
 - frontend: `npm run dev` in `front`
 
-Paste a JWT token into the token field to use authenticated operations.
+You authenticate directly in the app using register/login.
 
 ## GraphQL API
 
 ### Queries
 
 - `document(id: ID!)`
-- `myDocuments`
-- `sharedWithMeDocuments`
-- `searchDocuments(keyword: String!)`
+- `myDocuments(limit, offset, sortBy, sortDirection)`
+- `sharedWithMeDocuments(limit, offset, sortBy, sortDirection)`
+- `searchDocuments(keyword, limit, offset, sortBy, sortDirection)`
 - `me`
 
 ### Mutations
@@ -168,6 +176,7 @@ Paste a JWT token into the token field to use authenticated operations.
 - `deleteDocument(id)`
 - `addComment(documentId, text)`
 - `shareDocument(documentId, userEmail, permission)`
+- `unshareDocument(documentId, userEmail)`
 
 ### Subscriptions
 
@@ -248,8 +257,8 @@ For WebSocket subscriptions, provide `Authorization` in connection params.
 
 Frontend note:
 
-- Auth screens are intentionally deferred.
-- Use token from `register` or `login` mutation in the token panel.
+- Auth screens are included on the `/auth` page.
+- Manual token input is removed from the frontend UI.
 
 ## Notes
 

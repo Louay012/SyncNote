@@ -38,7 +38,7 @@ async function startServer() {
 
   const apolloServer = new ApolloServer({
     schema,
-    introspection: true,
+    introspection: env.graphqlIntrospection,
     plugins: [
       {
         async serverWillStart() {
@@ -71,7 +71,9 @@ async function startServer() {
 
   httpServer.listen(env.port, () => {
     // eslint-disable-next-line no-console
-    console.log(`SyncNote API running on http://localhost:${env.port}/graphql`);
+    console.log(
+      `SyncNote API running on http://localhost:${env.port}/graphql (env: ${env.nodeEnv})`
+    );
   });
 }
 

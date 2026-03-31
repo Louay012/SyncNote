@@ -1,4 +1,5 @@
 import Document from "../models/Document.js";
+import Section from "../models/Section.js";
 import Share from "../models/Share.js";
 
 export function ensureObjectId(id, fieldName = "id") {
@@ -29,6 +30,25 @@ export async function canAccessDocument(userId, documentId) {
   return Boolean(share);
 }
 
+export async function canEditDocument(userId, documentId) {
+  const document = await Document.findById(documentId);
+  if (!document) {
+    return false;
+  }
+
+  if (String(document.owner) === String(userId)) {
+    return true;
+  }
+
+  const share = await Share.findOne({
+    document: documentId,
+    user: userId,
+    permission: "EDIT"
+  });
+
+  return Boolean(share);
+}
+
 export async function ensureDocumentAccess(userId, documentId) {
   const hasAccess = await canAccessDocument(userId, documentId);
   if (!hasAccess) {
@@ -42,4 +62,27 @@ export async function ensureDocumentOwner(userId, documentId) {
     throw new Error("Only the document owner can perform this action");
   }
   return document;
+}
+
+export async function ensureSectionExists(sectionId) {
+  const section = await Section.findById(sectionId);
+  if (!section) {
+    throw new Error("Section not found");
+  }
+  return section;
+}
+
+export async function ensureSectionAccess(userId, sectionId) {
+  const section = await ensureSectionExists(sectionId);
+  await ensureDocumentAccess(userId, section.documentId);
+  return section;
+}
+
+export async function ensureSectionEditAccess(userId, sectionId) {
+  const section = await ensureSectionExists(sectionId);
+  const editable = await canEditDocument(userId, section.documentId);
+  if (!editable) {
+    throw new Error("You do not have permission to edit this section");
+  }
+  return section;
 }

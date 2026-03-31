@@ -87,6 +87,19 @@ const Share = {
     }
 
     await query("DELETE FROM shares WHERE document_id = $1", [filter.document]);
+  },
+
+  async deleteOne(filter = {}) {
+    if (!filter.document || !filter.user) {
+      return false;
+    }
+
+    const result = await query(
+      "DELETE FROM shares WHERE document_id = $1 AND user_id = $2",
+      [filter.document, filter.user]
+    );
+
+    return result.rowCount > 0;
   }
 };
 
