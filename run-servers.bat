@@ -16,14 +16,14 @@ call npm --prefix back install
 if errorlevel 1 goto :error
 
 echo [2/4] Installing frontend dependencies...
-call npm --prefix front/back install
+call npm --prefix front install
 if errorlevel 1 goto :error
 
 echo [3/4] Starting backend server in a new terminal...
 start "SyncNote Backend" cmd /k "cd /d "%~dp0back" && npm run dev"
 
 echo [4/4] Starting frontend server in a new terminal...
-start "SyncNote Frontend" cmd /k "cd /d "%~dp0front\back" && npm run dev"
+start "SyncNote Frontend" cmd /k "cd /d "%~dp0front" && npm run dev"
 
 echo Servers launched.
 exit /b 0

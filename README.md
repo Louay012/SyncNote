@@ -142,9 +142,9 @@ From project root, run:
 run-servers.bat
 ```
 
-This installs dependencies in `back` and `front/back`, then opens two terminals:
+This installs dependencies in `back` and `front`, then opens two terminals:
 - backend: `npm run dev` in `back`
-- frontend: `npm run dev` in `front/back`
+- frontend: `npm run dev` in `front`
 
 Paste a JWT token into the token field to use authenticated operations.
 
