@@ -10,6 +10,7 @@ function sortByOrder(a, b) {
 export default function SectionsTree({
   sections,
   selectedSectionId,
+  cursorUsersBySection,
   onSelect,
   onAddRoot,
   onAddChild,
@@ -70,6 +71,7 @@ export default function SectionsTree({
                 section={root}
                 depth={0}
                 selectedSectionId={selectedSectionId}
+                cursorUsers={cursorUsersBySection?.[String(root.id)] || []}
                 onSelect={onSelect}
                 onAddChild={onAddChild}
                 onDelete={onDelete}
@@ -87,6 +89,7 @@ export default function SectionsTree({
                       section={child}
                       depth={1}
                       selectedSectionId={selectedSectionId}
+                      cursorUsers={cursorUsersBySection?.[String(child.id)] || []}
                       onSelect={onSelect}
                       onAddChild={onAddChild}
                       onDelete={onDelete}

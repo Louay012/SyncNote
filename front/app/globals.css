@@ -647,6 +647,27 @@ button:disabled {
   color: var(--muted);
 }
 
+.section-cursor-badges {
+  margin-top: 5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.section-cursor-dot,
+.section-cursor-count {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  background: #dceeff;
+  font-family: var(--font-mono), monospace;
+  font-size: 10px;
+}
+
 .section-actions {
   display: flex;
   flex-wrap: wrap;
@@ -749,8 +770,34 @@ button:disabled {
   width: 100%;
   min-height: 390px;
   resize: vertical;
-  line-height: 1.5;
+  line-height: 22px;
   font-size: 15px;
+  font-family: var(--font-mono), monospace;
+}
+
+.editor-textarea-wrap {
+  position: relative;
+}
+
+.ghost-cursor {
+  position: absolute;
+  width: 0;
+  height: 20px;
+  border-left: 2px solid #1f6aa8;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.ghost-cursor-label {
+  position: absolute;
+  top: -16px;
+  left: 2px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-family: var(--font-mono), monospace;
+  font-size: 10px;
+  white-space: nowrap;
+  box-shadow: 0 2px 6px var(--shadow-soft);
 }
 
 .editor-meta {
@@ -807,6 +854,10 @@ button:disabled {
   background: #f1f8ff;
   font-family: var(--font-mono), monospace;
   font-size: 11px;
+}
+
+.cursor-chip {
+  background: #e8f6ff;
 }
 
 .typing-indicator {
@@ -985,6 +1036,8 @@ button:disabled {
 :root[data-theme="dark"] .comment-avatar,
 :root[data-theme="dark"] .presence-avatar,
 :root[data-theme="dark"] .presence-chip,
+:root[data-theme="dark"] .section-cursor-dot,
+:root[data-theme="dark"] .section-cursor-count,
 :root[data-theme="dark"] .group-count,
 :root[data-theme="dark"] .status-pill,
 :root[data-theme="dark"] .tiny-btn,

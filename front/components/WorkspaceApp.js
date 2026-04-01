@@ -21,6 +21,7 @@ import {
   getStoredToken,
   setStoredToken
 } from "@/lib/authToken";
+import { createCursorSocket } from "@/lib/cursorSocket";
 import {
   ADD_COMMENT,
   COMMENT_ADDED,
@@ -52,6 +53,16 @@ import {
 } from "@/lib/graphql";
 
 const PAGE_SIZE = 8;
+const DOCUMENT_CURSOR_COLORS = [
+  { bg: "#ff6b6b", fg: "#ffffff", border: "#b82525" },
+  { bg: "#4dabf7", fg: "#ffffff", border: "#1f6aa8" },
+  { bg: "#51cf66", fg: "#0f3d1d", border: "#2b8a3e" },
+  { bg: "#fcc419", fg: "#4a3700", border: "#c99700" },
+  { bg: "#9775fa", fg: "#ffffff", border: "#5f3dc4" },
+  { bg: "#ff922b", fg: "#4a2700", border: "#d97706" },
+  { bg: "#22b8cf", fg: "#07353c", border: "#0c8599" },
+  { bg: "#f06595", fg: "#57132a", border: "#c2255c" }
+];
 
 function sortByOrder(a, b) {
   return Number(a.order || 0) - Number(b.order || 0);
@@ -85,6 +96,31 @@ function firstPreferredSection(sections) {
 
 function boundedIndex(nextIndex, maxIndex) {
   return Math.min(Math.max(Number(nextIndex) || 0, 0), Math.max(maxIndex, 0));
+}
+
+function withDocumentCursorColors(cursorsByUserId) {
+  const entries = Object.entries(cursorsByUserId || {});
+  const sortedUserIds = entries
+    .map(([userId]) => String(userId))
+    .sort((a, b) => a.localeCompare(b));
+
+  const colorByUserId = new Map();
+  sortedUserIds.forEach((userId, index) => {
+    colorByUserId.set(
+      userId,
+      DOCUMENT_CURSOR_COLORS[index % DOCUMENT_CURSOR_COLORS.length]
+    );
+  });
+
+  return Object.fromEntries(
+    entries.map(([userId, cursor]) => [
+      userId,
+      {
+        ...cursor,
+        cursorColor: colorByUserId.get(String(userId))
+      }
+    ])
+  );
 }
 
 function Workspace() {
@@ -150,6 +186,8 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
   const [saveState, setSaveState] = useState("idle");
   const [presenceUsers, setPresenceUsers] = useState([]);
   const [typingUsers, setTypingUsers] = useState({});
+  const [remoteCursors, setRemoteCursors] = useState({});
+  const [socketSelfCursorId, setSocketSelfCursorId] = useState("");
   const [lastSectionActor, setLastSectionActor] = useState("");
   const [collabEmail, setCollabEmail] = useState("");
   const [collabPermission, setCollabPermission] = useState("EDIT");
@@ -157,6 +195,10 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
   const [modalError, setModalError] = useState("");
 
   const saveTimerRef = useRef(null);
+  const cursorTimerRef = useRef(null);
+  const cursorSocketRef = useRef(null);
+  const socketSelfCursorIdRef = useRef("");
+  const lastCursorOffsetRef = useRef(null);
   const selectedSectionIdRef = useRef(selectedSectionId);
   const activeSectionIdRef = useRef(null);
   const localEditRef = useRef(false);
@@ -189,6 +231,13 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
       if (saveTimerRef.current) {
         window.clearTimeout(saveTimerRef.current);
       }
+
+      if (cursorTimerRef.current) {
+        window.clearTimeout(cursorTimerRef.current);
+      }
+
+      cursorSocketRef.current?.disconnect();
+      cursorSocketRef.current = null;
     },
     []
   );
@@ -337,6 +386,9 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
   const activeTotal = searching ? totalSearch : totalMine + totalShared;
   const comments = commentsData?.commentsBySection || [];
   const versions = versionsData?.getVersions || [];
+  const coloredRemoteCursors = useMemo(() => {
+    return withDocumentCursorColors(remoteCursors);
+  }, [remoteCursors]);
 
   useEffect(() => {
     if (!activeId && myDocs.length > 0) {
@@ -522,6 +574,121 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
     }
   });
 
+  useEffect(() => {
+    if (!token || !activeId) {
+      return undefined;
+    }
+
+    const socket = createCursorSocket(token);
+    cursorSocketRef.current = socket;
+
+    const onConnect = () => {
+      const ownCursorId = String(socket.id || "");
+      if (ownCursorId) {
+        socketSelfCursorIdRef.current = ownCursorId;
+        setSocketSelfCursorId(ownCursorId);
+      }
+      socket.emit("cursor:join", { documentId: activeId });
+    };
+
+    const onDisconnect = () => {};
+
+    const onSelf = (payload) => {
+      const cursorId = String(payload?.cursorId || "");
+      if (!cursorId) {
+        return;
+      }
+      socketSelfCursorIdRef.current = cursorId;
+      setSocketSelfCursorId(cursorId);
+    };
+
+    const onSnapshot = (payload) => {
+      const snapshot = payload?.cursors || [];
+      const snapshotSelfCursorId = String(payload?.selfCursorId || "");
+      if (snapshotSelfCursorId) {
+        socketSelfCursorIdRef.current = snapshotSelfCursorId;
+        setSocketSelfCursorId(snapshotSelfCursorId);
+      }
+
+      const currentCursorId = String(socketSelfCursorIdRef.current || "");
+      const mapped = {};
+
+      snapshot.forEach((entry) => {
+        const entryCursorId = String(entry?.cursorId || "");
+        if (!entryCursorId) {
+          return;
+        }
+        if (currentCursorId && entryCursorId === currentCursorId) {
+          return;
+        }
+        mapped[entryCursorId] = entry;
+      });
+
+      setRemoteCursors(mapped);
+    };
+
+    const onMoved = (payload) => {
+      const payloadCursorId = String(payload?.cursorId || "");
+      if (!payloadCursorId) {
+        return;
+      }
+
+      if (String(payload?.documentId || "") !== String(activeId || "")) {
+        return;
+      }
+
+      const currentCursorId = String(socketSelfCursorIdRef.current || "");
+      if (currentCursorId && payloadCursorId === currentCursorId) {
+        return;
+      }
+
+      setRemoteCursors((current) => ({
+        ...current,
+        [payloadCursorId]: payload
+      }));
+    };
+
+    const onLeft = (payload) => {
+      const payloadCursorId = String(payload?.cursorId || "");
+      if (!payloadCursorId) {
+        return;
+      }
+
+      if (String(payload?.documentId || "") !== String(activeId || "")) {
+        return;
+      }
+
+      setRemoteCursors((current) => {
+        const next = { ...current };
+        delete next[payloadCursorId];
+        return next;
+      });
+    };
+
+    socket.on("connect", onConnect);
+    socket.on("disconnect", onDisconnect);
+    socket.on("cursor:self", onSelf);
+    socket.on("cursor:snapshot", onSnapshot);
+    socket.on("cursor:moved", onMoved);
+    socket.on("cursor:left", onLeft);
+    socket.connect();
+
+    return () => {
+      socket.emit("cursor:leave", { documentId: activeId });
+      socket.off("connect", onConnect);
+      socket.off("disconnect", onDisconnect);
+      socket.off("cursor:self", onSelf);
+      socket.off("cursor:snapshot", onSnapshot);
+      socket.off("cursor:moved", onMoved);
+      socket.off("cursor:left", onLeft);
+      socket.disconnect();
+      socketSelfCursorIdRef.current = "";
+      if (cursorSocketRef.current === socket) {
+        cursorSocketRef.current = null;
+      }
+    };
+  }, [token, activeId]);
+
   const typingNotice = useMemo(() => {
     const others = Object.values(typingUsers);
     if (!others.length) {
@@ -545,6 +712,13 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
     }
   }
 
+  function clearPendingCursorUpdate() {
+    if (cursorTimerRef.current) {
+      window.clearTimeout(cursorTimerRef.current);
+      cursorTimerRef.current = null;
+    }
+  }
+
   function closeModal() {
     setModal(null);
     setModalError("");
@@ -561,10 +735,16 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
     setSaveState("idle");
     setPresenceUsers([]);
     setTypingUsers({});
+    setRemoteCursors({});
+    setSocketSelfCursorId("");
+    socketSelfCursorIdRef.current = "";
     setLastSectionActor("");
     setCollabEmail("");
     closeModal();
     clearPendingSave();
+    clearPendingCursorUpdate();
+    cursorSocketRef.current?.disconnect();
+    cursorSocketRef.current = null;
     clearStoredToken();
     apolloClient.clearStore();
     router.replace("/login");
@@ -717,6 +897,32 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
         }).catch(() => {});
       }
     }, 1200);
+  }
+
+  function handleCursorActivity(cursorPosition) {
+    if (!activeId || !activeSection?.id || !cursorPosition) {
+      return;
+    }
+
+    if (Number(cursorPosition.offset) === lastCursorOffsetRef.current) {
+      return;
+    }
+
+    lastCursorOffsetRef.current = Number(cursorPosition.offset);
+    clearPendingCursorUpdate();
+
+    const payload = {
+      documentId: activeId,
+      sectionId: activeSection.id,
+      sectionTitle: activeSection.title,
+      line: Number(cursorPosition.line) || 1,
+      column: Number(cursorPosition.column) || 1,
+      offset: Number(cursorPosition.offset) || 0
+    };
+
+    cursorTimerRef.current = window.setTimeout(() => {
+      cursorSocketRef.current?.emit("cursor:move", payload);
+    }, 120);
   }
 
   async function handleCreateSection(parentId = null) {
@@ -967,22 +1173,47 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
 
   function handleSelectDocument(documentId) {
     clearPendingSave();
+    clearPendingCursorUpdate();
     setActiveId(documentId);
     setSelectedSectionId(null);
     setSectionDraft("");
     setSaveState("idle");
     setPresenceUsers([]);
     setTypingUsers({});
+    setRemoteCursors({});
+    setSocketSelfCursorId("");
+    socketSelfCursorIdRef.current = "";
     setLastSectionActor("");
+    lastCursorOffsetRef.current = null;
     localEditRef.current = false;
   }
 
   function handleSelectSection(sectionId) {
     clearPendingSave();
+    clearPendingCursorUpdate();
     setSelectedSectionId(sectionId);
     setSaveState("idle");
+    lastCursorOffsetRef.current = null;
     localEditRef.current = false;
   }
+
+  const cursorUsersBySection = useMemo(() => {
+    const grouped = {};
+    Object.values(coloredRemoteCursors).forEach((entry) => {
+      if (!entry.sectionId) {
+        return;
+      }
+
+      const key = String(entry.sectionId);
+      if (!grouped[key]) {
+        grouped[key] = [];
+      }
+
+      grouped[key].push(entry);
+    });
+
+    return grouped;
+  }, [coloredRemoteCursors]);
 
   function handleOpenCollaborators(documentId) {
     setActiveId(documentId);
@@ -1086,6 +1317,7 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
             <SectionsTree
               sections={sections}
               selectedSectionId={selectedSectionId}
+              cursorUsersBySection={cursorUsersBySection}
               onSelect={handleSelectSection}
               onAddRoot={() => handleCreateSection(null)}
               onAddChild={(parentId) => handleCreateSection(parentId)}
@@ -1116,6 +1348,9 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
             onSaveSectionTitle={handleSaveSectionTitle}
             activeUsers={presenceUsers}
             currentUserId={meData?.me?.id || null}
+            currentCursorId={socketSelfCursorId || null}
+            cursorUsers={Object.values(coloredRemoteCursors)}
+            onCursorActivity={handleCursorActivity}
             typingNotice={typingNotice}
             updatedByName={activeSection?.updatedBy?.name || lastSectionActor}
           />

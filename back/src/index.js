@@ -9,12 +9,14 @@ import { env } from "./config/env.js";
 import { connectPostgres } from "./db/postgres.js";
 import { buildContext } from "./graphql/context.js";
 import { schema } from "./graphql/schema.js";
+import { attachCursorSocket } from "./realtime/cursorSocket.js";
 
 async function startServer() {
   await connectPostgres();
 
   const app = express();
   const httpServer = http.createServer(app);
+  attachCursorSocket(httpServer, env);
 
   const wsServer = new WebSocketServer({
     server: httpServer,
