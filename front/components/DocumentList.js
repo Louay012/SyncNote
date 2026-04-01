@@ -8,7 +8,7 @@ function formatTime(dateString) {
   })}`;
 }
 
-function Group({ title, docs, activeId, onSelect }) {
+function Group({ title, docs, activeId, onSelect, onOpenCollaborators }) {
   return (
     <div className="doc-group">
       <h3>
@@ -17,16 +17,29 @@ function Group({ title, docs, activeId, onSelect }) {
       </h3>
       {docs.length === 0 ? <p className="empty">No documents</p> : null}
       {docs.map((doc) => (
-        <button
+        <div
           key={doc.id}
-          type="button"
           className={activeId === doc.id ? "doc-item active" : "doc-item"}
-          onClick={() => onSelect(doc.id)}
         >
-          <strong>{doc.title}</strong>
-          <span>{formatTime(doc.updatedAt)}</span>
-          <small>Owner: {doc.owner.name}</small>
-        </button>
+          <button
+            type="button"
+            className="doc-main-btn"
+            onClick={() => onSelect(doc.id)}
+          >
+            <strong>{doc.title}</strong>
+            <span>{formatTime(doc.updatedAt)}</span>
+            <small>Owner: {doc.owner.name}</small>
+          </button>
+          <button
+            type="button"
+            className="doc-collab-btn"
+            onClick={() => onOpenCollaborators(doc.id)}
+            aria-label={`Manage collaborators for ${doc.title}`}
+            title="Manage collaborators"
+          >
+            Share
+          </button>
+        </div>
       ))}
     </div>
   );
@@ -41,6 +54,7 @@ export default function DocumentList({
   totalSearch,
   activeId,
   onSelect,
+  onOpenCollaborators,
   onCreate,
   onPrevPage,
   onNextPage,
@@ -65,12 +79,14 @@ export default function DocumentList({
         docs={myDocs}
         activeId={activeId}
         onSelect={onSelect}
+        onOpenCollaborators={onOpenCollaborators}
       />
       <Group
         title="Shared With Me"
         docs={sharedDocs}
         activeId={activeId}
         onSelect={onSelect}
+        onOpenCollaborators={onOpenCollaborators}
       />
       <div className="list-pagination">
         <button type="button" onClick={onPrevPage} disabled={!canPrev}>

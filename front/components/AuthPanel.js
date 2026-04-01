@@ -2,8 +2,14 @@
 
 import { useState } from "react";
 
-export default function AuthPanel({ onLogin, onRegister, loading }) {
-  const [mode, setMode] = useState("login");
+export default function AuthPanel({
+  onLogin,
+  onRegister,
+  loading,
+  initialMode = "login",
+  lockMode = false
+}) {
+  const [mode, setMode] = useState(initialMode);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -36,22 +42,24 @@ export default function AuthPanel({ onLogin, onRegister, loading }) {
   return (
     <section className="panel auth-panel">
       <p className="list-meta">Use your account to access collaborative documents in real time.</p>
-      <div className="auth-tabs" role="tablist" aria-label="Authentication mode">
-        <button
-          type="button"
-          onClick={() => setMode("login")}
-          className={mode === "login" ? "active" : ""}
-        >
-          Login
-        </button>
-        <button
-          type="button"
-          onClick={() => setMode("register")}
-          className={mode === "register" ? "active" : ""}
-        >
-          Register
-        </button>
-      </div>
+      {lockMode ? null : (
+        <div className="auth-tabs" role="tablist" aria-label="Authentication mode">
+          <button
+            type="button"
+            onClick={() => setMode("login")}
+            className={mode === "login" ? "active" : ""}
+          >
+            Login
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("register")}
+            className={mode === "register" ? "active" : ""}
+          >
+            Register
+          </button>
+        </div>
+      )}
 
       <form className="auth-form" onSubmit={submit}>
         {mode === "register" ? (

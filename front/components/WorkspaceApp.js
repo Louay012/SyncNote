@@ -17,6 +17,11 @@ import TabsPanel from "@/components/TabsPanel";
 import VersionPanel from "@/components/VersionPanel";
 import { createApolloClient } from "@/lib/apollo";
 import {
+  clearStoredToken,
+  getStoredToken,
+  setStoredToken
+} from "@/lib/authToken";
+import {
   ADD_COMMENT,
   COMMENT_ADDED,
   CREATE_DOCUMENT,
@@ -90,7 +95,7 @@ function Workspace() {
   const client = useMemo(() => createApolloClient(token), [token]);
 
   useEffect(() => {
-    const saved = window.localStorage.getItem("syncnote-token") || "";
+    const saved = getStoredToken();
     setToken(saved);
     setHydrated(true);
   }, []);
@@ -101,11 +106,11 @@ function Workspace() {
     }
 
     if (!token) {
-      router.replace("/auth");
+      router.replace("/login");
       return;
     }
 
-    window.localStorage.setItem("syncnote-token", token);
+    setStoredToken(token);
   }, [hydrated, token, router]);
 
   if (!hydrated) {
@@ -148,6 +153,8 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
   const [lastSectionActor, setLastSectionActor] = useState("");
   const [collabEmail, setCollabEmail] = useState("");
   const [collabPermission, setCollabPermission] = useState("EDIT");
+  const [modal, setModal] = useState(null);
+  const [modalError, setModalError] = useState("");
 
   const saveTimerRef = useRef(null);
   const selectedSectionIdRef = useRef(selectedSectionId);
@@ -538,6 +545,11 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
     }
   }
 
+  function closeModal() {
+    setModal(null);
+    setModalError("");
+  }
+
   function handleLogout() {
     onLogout();
     setActiveId(null);
@@ -551,10 +563,11 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
     setTypingUsers({});
     setLastSectionActor("");
     setCollabEmail("");
+    closeModal();
     clearPendingSave();
-    window.localStorage.removeItem("syncnote-token");
+    clearStoredToken();
     apolloClient.clearStore();
-    router.replace("/auth");
+    router.replace("/login");
   }
 
   function refreshDocumentCollections() {
@@ -566,14 +579,21 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
   }
 
   async function handleCreate() {
-    const title = window.prompt("Document title");
-    if (!title || !title.trim()) {
+    setModalError("");
+    setModal({ type: "create-document", title: "" });
+  }
+
+  async function submitCreateDocument() {
+    const title = String(modal?.title || "").trim();
+    if (!title) {
+      setModalError("Document title is required");
       return;
     }
 
+    setModalError("");
     try {
       const result = await createDocument({
-        variables: { title: title.trim(), content: "" }
+        variables: { title, content: "" }
       });
 
       const id = result.data?.createDocument?.id;
@@ -586,9 +606,10 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
         setLastSectionActor("");
       }
 
+      closeModal();
       setNotice("Document created");
     } catch (error) {
-      setNotice(error.message);
+      setModalError(error.message);
     }
   }
 
@@ -703,17 +724,33 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
       return;
     }
 
-    const title = window.prompt(parentId ? "Subsection title" : "Section title");
-    if (!title || !title.trim()) {
+    setModalError("");
+    setModal({
+      type: "create-section",
+      parentId,
+      title: "",
+      heading: parentId ? "Create Subsection" : "Create Section"
+    });
+  }
+
+  async function submitCreateSection() {
+    if (!activeId) {
       return;
     }
 
+    const title = String(modal?.title || "").trim();
+    if (!title) {
+      setModalError("Section title is required");
+      return;
+    }
+
+    setModalError("");
     try {
       const result = await createSection({
         variables: {
           documentId: activeId,
-          title: title.trim(),
-          parentId
+          title,
+          parentId: modal?.parentId ?? null
         }
       });
 
@@ -724,9 +761,10 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
         setSelectedSectionId(created.id);
       }
 
-      setNotice(parentId ? "Subsection created" : "Section created");
+      closeModal();
+      setNotice((modal?.parentId ?? null) ? "Subsection created" : "Section created");
     } catch (error) {
-      setNotice(error.message);
+      setModalError(error.message);
     }
   }
 
@@ -736,16 +774,19 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
       return;
     }
 
-    const confirmed = window.confirm(
-      target.parentId
-        ? `Delete subsection "${target.title}"?`
-        : `Delete section "${target.title}" and its subsections?`
-    );
+    setModalError("");
+    setModal({ type: "delete-section", sectionId: target.id, sectionTitle: target.title });
+  }
 
-    if (!confirmed) {
+  async function submitDeleteSection() {
+    const targetId = modal?.sectionId;
+    const target = sections.find((section) => String(section.id) === String(targetId));
+    if (!target) {
+      closeModal();
       return;
     }
 
+    setModalError("");
     try {
       clearPendingSave();
       await deleteSection({ variables: { sectionId: target.id } });
@@ -765,9 +806,10 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
       if (activeSection?.id === target.id) {
         refetchComments().catch(() => {});
       }
+      closeModal();
       setNotice("Section removed");
     } catch (error) {
-      setNotice(error.message);
+      setModalError(error.message);
     }
   }
 
@@ -866,14 +908,18 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
   async function handleShare(event) {
     event.preventDefault();
 
-    if (!activeId || !collabEmail.trim()) {
+    const documentId = modal?.type === "collaborators" ? modal.documentId : activeId;
+
+    if (!documentId || !collabEmail.trim()) {
+      setModalError("Collaborator email is required");
       return;
     }
 
+    setModalError("");
     try {
       await shareDocument({
         variables: {
-          documentId: activeId,
+          documentId,
           userEmail: collabEmail.trim(),
           permission: collabPermission
         }
@@ -883,19 +929,23 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
       setNotice(`Shared with ${collabEmail.trim()} as ${collabPermission}`);
       setCollabEmail("");
     } catch (error) {
+      if (modal?.type === "collaborators") {
+        setModalError(error.message);
+        return;
+      }
       setNotice(error.message);
     }
   }
 
-  async function handleUnshare(userEmail) {
-    if (!activeId) {
+  async function handleUnshare(userEmail, documentId = activeId) {
+    if (!documentId) {
       return;
     }
 
     try {
       await unshareDocument({
         variables: {
-          documentId: activeId,
+          documentId,
           userEmail
         }
       });
@@ -934,6 +984,14 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
     localEditRef.current = false;
   }
 
+  function handleOpenCollaborators(documentId) {
+    setActiveId(documentId);
+    setCollabEmail("");
+    setCollabPermission("EDIT");
+    setModalError("");
+    setModal({ type: "collaborators", documentId });
+  }
+
   const tabs = [
     {
       id: "comments",
@@ -961,59 +1019,6 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
           loading={savingVersion || restoringVersion || loadingVersions}
           disabled={!activeDoc}
         />
-      )
-    },
-    {
-      id: "collaborators",
-      label: "Collaborators",
-      badge: activeDoc?.collaborators?.length || 0,
-      content: (
-        <section className="collaborators-tab">
-          <h3>Collaborators</h3>
-          <form className="share-form" onSubmit={handleShare}>
-            <input
-              value={collabEmail}
-              onChange={(event) => setCollabEmail(event.target.value)}
-              placeholder="Collaborator email"
-              disabled={!activeDoc || sharingDocument || unsharingDocument}
-            />
-            <select
-              value={collabPermission}
-              onChange={(event) => setCollabPermission(event.target.value)}
-              disabled={!activeDoc || sharingDocument || unsharingDocument}
-            >
-              <option value="EDIT">EDIT</option>
-              <option value="VIEW">VIEW</option>
-            </select>
-            <button
-              type="submit"
-              disabled={!activeDoc || sharingDocument || unsharingDocument}
-            >
-              {sharingDocument ? "Sharing..." : "Share"}
-            </button>
-          </form>
-
-          <div className="collab-list">
-            {(activeDoc?.collaborators || []).map((collaborator) => (
-              <div key={collaborator.id} className="collab-item">
-                <div>
-                  <strong>{collaborator.name}</strong>
-                  <small>{collaborator.email}</small>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => handleUnshare(collaborator.email)}
-                  disabled={sharingDocument || unsharingDocument}
-                >
-                  Remove
-                </button>
-              </div>
-            ))}
-            {(activeDoc?.collaborators || []).length === 0 ? (
-              <p className="empty">No collaborators yet.</p>
-            ) : null}
-          </div>
-        </section>
       )
     }
   ];
@@ -1069,6 +1074,7 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
             totalSearch={totalSearch}
             activeId={activeId}
             onSelect={handleSelectDocument}
+            onOpenCollaborators={handleOpenCollaborators}
             onCreate={handleCreate}
             onPrevPage={handlePrevPage}
             onNextPage={handleNextPage}
@@ -1119,6 +1125,141 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
           <TabsPanel tabs={tabs} defaultTabId="comments" />
         </aside>
       </section>
+
+      {modal ? (
+        <section className="modal-backdrop" role="presentation">
+          <article className="panel modal-card" role="dialog" aria-modal="true">
+            {modalError ? <p className="modal-error">{modalError}</p> : null}
+
+            {modal.type === "create-document" ? (
+              <>
+                <h3>Create Document</h3>
+                <p className="list-meta">Give your new document a clear name.</p>
+                <input
+                  autoFocus
+                  value={modal.title}
+                  onChange={(event) =>
+                    setModal((current) => ({ ...current, title: event.target.value }))
+                  }
+                  placeholder="Document title"
+                />
+                <div className="modal-actions">
+                  <button type="button" onClick={closeModal}>
+                    Cancel
+                  </button>
+                  <button type="button" onClick={submitCreateDocument}>
+                    Create
+                  </button>
+                </div>
+              </>
+            ) : null}
+
+            {modal.type === "create-section" ? (
+              <>
+                <h3>{modal.heading}</h3>
+                <p className="list-meta">Create a new section in this document tree.</p>
+                <input
+                  autoFocus
+                  value={modal.title}
+                  onChange={(event) =>
+                    setModal((current) => ({ ...current, title: event.target.value }))
+                  }
+                  placeholder="Section title"
+                />
+                <div className="modal-actions">
+                  <button type="button" onClick={closeModal}>
+                    Cancel
+                  </button>
+                  <button type="button" onClick={submitCreateSection}>
+                    Create
+                  </button>
+                </div>
+              </>
+            ) : null}
+
+            {modal.type === "delete-section" ? (
+              <>
+                <h3>Delete Section</h3>
+                <p>
+                  Delete <strong>{modal.sectionTitle}</strong>? This action cannot be undone.
+                </p>
+                <div className="modal-actions">
+                  <button type="button" onClick={closeModal}>
+                    Cancel
+                  </button>
+                  <button type="button" className="danger-btn" onClick={submitDeleteSection}>
+                    Delete
+                  </button>
+                </div>
+              </>
+            ) : null}
+
+            {modal.type === "collaborators" ? (
+              <>
+                <h3>Manage Collaborators</h3>
+                <p className="list-meta">
+                  {activeDoc?.id === modal.documentId
+                    ? `Document: ${activeDoc.title}`
+                    : "Loading document details..."}
+                </p>
+                <form className="share-form" onSubmit={handleShare}>
+                  <input
+                    value={collabEmail}
+                    onChange={(event) => setCollabEmail(event.target.value)}
+                    placeholder="Collaborator email"
+                    disabled={!activeDoc || sharingDocument || unsharingDocument}
+                  />
+                  <select
+                    value={collabPermission}
+                    onChange={(event) => setCollabPermission(event.target.value)}
+                    disabled={!activeDoc || sharingDocument || unsharingDocument}
+                  >
+                    <option value="EDIT">EDIT</option>
+                    <option value="VIEW">VIEW</option>
+                  </select>
+                  <button
+                    type="submit"
+                    disabled={!activeDoc || sharingDocument || unsharingDocument}
+                  >
+                    {sharingDocument ? "Sharing..." : "Share"}
+                  </button>
+                </form>
+
+                <div className="collab-list">
+                  {(activeDoc?.id === modal.documentId ? activeDoc?.collaborators : []).map(
+                    (collaborator) => (
+                      <div key={collaborator.id} className="collab-item">
+                        <div>
+                          <strong>{collaborator.name}</strong>
+                          <small>{collaborator.email}</small>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleUnshare(collaborator.email, modal.documentId)}
+                          disabled={sharingDocument || unsharingDocument}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    )
+                  )}
+                  {((activeDoc?.id === modal.documentId
+                    ? activeDoc?.collaborators?.length
+                    : 0) || 0) === 0 ? (
+                    <p className="empty">No collaborators yet.</p>
+                  ) : null}
+                </div>
+
+                <div className="modal-actions">
+                  <button type="button" onClick={closeModal}>
+                    Close
+                  </button>
+                </div>
+              </>
+            ) : null}
+          </article>
+        </section>
+      ) : null}
     </main>
   );
 }

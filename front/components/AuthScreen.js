@@ -2,19 +2,29 @@
 
 import { ApolloProvider, useMutation } from "@apollo/client";
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import AuthPanel from "@/components/AuthPanel";
 import { createApolloClient } from "@/lib/apollo";
+import { getStoredToken, setStoredToken } from "@/lib/authToken";
 import { LOGIN, REGISTER } from "@/lib/graphql";
 
-function AuthScreen() {
+function AuthScreenContent({
+  mode = "login",
+  lockMode = false,
+  switchHref = "",
+  switchLabel = ""
+}) {
   const router = useRouter();
   const [notice, setNotice] = useState("");
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
-    const saved = window.localStorage.getItem("syncnote-token") || "";
+    const saved = getStoredToken();
+
     if (saved) {
+      // Keep old sessions compatible by syncing cookie from localStorage.
+      setStoredToken(saved);
       router.replace("/");
       return;
     }
@@ -39,7 +49,7 @@ function AuthScreen() {
       const result = await login({ variables: credentials });
       const nextToken = result.data?.login?.token;
       if (nextToken) {
-        window.localStorage.setItem("syncnote-token", nextToken);
+        setStoredToken(nextToken);
         router.replace("/");
       }
     } catch (error) {
@@ -52,7 +62,7 @@ function AuthScreen() {
       const result = await register({ variables: credentials });
       const nextToken = result.data?.register?.token;
       if (nextToken) {
-        window.localStorage.setItem("syncnote-token", nextToken);
+        setStoredToken(nextToken);
         router.replace("/");
       }
     } catch (error) {
@@ -64,7 +74,7 @@ function AuthScreen() {
     return (
       <main className="auth-shell">
         <section className="panel notice-panel">
-          <p>Preparing auth page...</p>
+          <p>Loading authentication...</p>
         </section>
       </main>
     );
@@ -92,7 +102,17 @@ function AuthScreen() {
             onLogin={handleLogin}
             onRegister={handleRegister}
             loading={loggingIn || registering}
+            initialMode={mode}
+            lockMode={lockMode}
           />
+
+          {switchHref && switchLabel ? (
+            <section className="panel notice-panel">
+              <p>
+                <Link href={switchHref}>{switchLabel}</Link>
+              </p>
+            </section>
+          ) : null}
 
           {notice ? (
             <section className="panel notice-panel">
@@ -105,12 +125,12 @@ function AuthScreen() {
   );
 }
 
-export default function AuthPage() {
+export default function AuthScreen(props) {
   const client = useMemo(() => createApolloClient(""), []);
 
   return (
     <ApolloProvider client={client}>
-      <AuthScreen />
+      <AuthScreenContent {...props} />
     </ApolloProvider>
   );
 }

@@ -6,6 +6,11 @@ function formatDate(dateString) {
   return new Date(dateString).toLocaleString();
 }
 
+function getFirstNameInitial(name) {
+  const firstName = String(name || "").trim().split(/\s+/)[0] || "U";
+  return firstName.slice(0, 1).toUpperCase();
+}
+
 export default function CommentsPane({
   comments,
   onAdd,
@@ -33,16 +38,18 @@ export default function CommentsPane({
         {comments.length === 0 ? <p className="empty">No comments yet.</p> : null}
         {comments.map((comment) => (
           <article key={comment.id} className="comment-item">
-            <div className="comment-head">
+            <div className="comment-row">
               <span className="comment-avatar">
-                {(comment.author?.name || "U").slice(0, 1).toUpperCase()}
+                {getFirstNameInitial(comment.author?.name)}
               </span>
-              <div>
-                <strong>{comment.author?.name || "User"}</strong>
-                <span>{formatDate(comment.createdAt)}</span>
+              <div className="comment-content">
+                <div className="comment-meta-line">
+                  <strong>{comment.author?.name || "User"}</strong>
+                  <span>{formatDate(comment.createdAt)}</span>
+                </div>
+                <p className="comment-body">{comment.content || comment.text}</p>
               </div>
             </div>
-            <p>{comment.content || comment.text}</p>
           </article>
         ))}
       </div>

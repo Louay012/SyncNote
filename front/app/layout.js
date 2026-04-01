@@ -1,5 +1,6 @@
 import { Space_Grotesk, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
+import ThemeToggle from "@/components/ThemeToggle";
 
 const headingFont = Space_Grotesk({
   subsets: ["latin"],
@@ -20,7 +21,10 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <body className={`${headingFont.variable} ${monoFont.variable}`}>{children}</body>
+      <body className={`${headingFont.variable} ${monoFont.variable}`}>
+        <ThemeToggle />
+        {children}
+      </body>
     </html>
   );
 }
