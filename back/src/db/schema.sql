@@ -24,12 +24,14 @@ CREATE INDEX IF NOT EXISTS documents_owner_id_idx ON documents(owner_id);
 CREATE TABLE IF NOT EXISTS sections (
   id BIGSERIAL PRIMARY KEY,
   document_id BIGINT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
-  type TEXT NOT NULL,
+  title TEXT NOT NULL DEFAULT 'Section',
   content TEXT NOT NULL DEFAULT '',
+  parent_id BIGINT REFERENCES sections(id) ON DELETE CASCADE,
+  order_index INTEGER NOT NULL DEFAULT 0,
+  -- Deprecated: retained only for compatibility with older snapshots/migrations.
+  type TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT sections_type_check CHECK (type IN ('summary', 'notes', 'questions')),
-  CONSTRAINT sections_document_type_unique UNIQUE (document_id, type)
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS sections_document_id_idx ON sections(document_id);
@@ -68,20 +70,62 @@ CREATE TABLE IF NOT EXISTS shares (
 CREATE INDEX IF NOT EXISTS shares_user_id_idx ON shares(user_id);
 CREATE INDEX IF NOT EXISTS shares_document_id_idx ON shares(document_id);
 
--- Ensure missing sections are always present for existing documents.
-INSERT INTO sections(document_id, type, content)
+-- Dynamic section migration and compatibility layer.
+ALTER TABLE sections ADD COLUMN IF NOT EXISTS title TEXT;
+ALTER TABLE sections ADD COLUMN IF NOT EXISTS parent_id BIGINT;
+ALTER TABLE sections ADD COLUMN IF NOT EXISTS order_index INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE sections ADD COLUMN IF NOT EXISTS type TEXT;
+
+ALTER TABLE sections DROP CONSTRAINT IF EXISTS sections_type_check;
+ALTER TABLE sections DROP CONSTRAINT IF EXISTS sections_document_type_unique;
+
+ALTER TABLE sections DROP CONSTRAINT IF EXISTS sections_parent_id_fkey;
+ALTER TABLE sections
+ADD CONSTRAINT sections_parent_id_fkey
+FOREIGN KEY (parent_id) REFERENCES sections(id) ON DELETE CASCADE;
+
+ALTER TABLE sections ALTER COLUMN type DROP NOT NULL;
+
+UPDATE sections
+SET title = COALESCE(NULLIF(TRIM(title), ''), INITCAP(COALESCE(type, 'section')));
+
+UPDATE sections
+SET title = 'Section'
+WHERE title IS NULL;
+
+WITH ranked AS (
+  SELECT
+    id,
+    ROW_NUMBER() OVER (
+      PARTITION BY document_id, COALESCE(parent_id, 0)
+      ORDER BY created_at, id
+    ) - 1 AS next_order
+  FROM sections
+)
+UPDATE sections s
+SET order_index = ranked.next_order
+FROM ranked
+WHERE s.id = ranked.id;
+
+ALTER TABLE sections ALTER COLUMN title SET NOT NULL;
+
+CREATE INDEX IF NOT EXISTS sections_parent_id_idx ON sections(parent_id);
+CREATE INDEX IF NOT EXISTS sections_document_parent_order_idx
+ON sections(document_id, parent_id, order_index);
+
+-- Ensure each document has at least one root section.
+INSERT INTO sections(document_id, title, content, parent_id, order_index, type)
 SELECT
   d.id,
-  seed.type,
-  CASE
-    WHEN seed.type = 'notes' THEN COALESCE(d.content, '')
-    ELSE ''
-  END
+  'Overview',
+  COALESCE(d.content, ''),
+  NULL,
+  0,
+  'notes'
 FROM documents d
-CROSS JOIN (
-  VALUES ('summary'), ('notes'), ('questions')
-) AS seed(type)
-ON CONFLICT (document_id, type) DO NOTHING;
+WHERE NOT EXISTS (
+  SELECT 1 FROM sections s WHERE s.document_id = d.id
+);
 
 -- Migration path for existing comments linked by document_id.
 ALTER TABLE comments ADD COLUMN IF NOT EXISTS section_id BIGINT;
@@ -96,11 +140,25 @@ BEGIN
       AND column_name = 'document_id'
   ) THEN
     UPDATE comments c
-    SET section_id = s.id
-    FROM sections s
+    SET section_id = COALESCE(
+      (
+        SELECT s1.id
+        FROM sections s1
+        WHERE s1.document_id = c.document_id
+          AND s1.type = 'notes'
+        ORDER BY s1.id
+        LIMIT 1
+      ),
+      (
+        SELECT s2.id
+        FROM sections s2
+        WHERE s2.document_id = c.document_id
+        ORDER BY s2.parent_id NULLS FIRST, s2.order_index, s2.id
+        LIMIT 1
+      )
+    )
     WHERE c.section_id IS NULL
-      AND s.document_id = c.document_id
-      AND s.type = 'notes';
+      AND c.document_id IS NOT NULL;
   END IF;
 END $$;
 

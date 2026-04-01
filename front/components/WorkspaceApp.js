@@ -12,11 +12,16 @@ import { useRouter } from "next/navigation";
 import CommentsPane from "@/components/CommentsPane";
 import DocumentList from "@/components/DocumentList";
 import EditorPane from "@/components/EditorPane";
+import SectionsTree from "@/components/SectionsTree";
+import TabsPanel from "@/components/TabsPanel";
+import VersionPanel from "@/components/VersionPanel";
 import { createApolloClient } from "@/lib/apollo";
 import {
   ADD_COMMENT,
   COMMENT_ADDED,
   CREATE_DOCUMENT,
+  CREATE_SECTION,
+  DELETE_SECTION,
   GET_DOCUMENT,
   GET_DOCUMENT_PRESENCE,
   GET_ME,
@@ -26,6 +31,7 @@ import {
   GET_SHARED_DOCUMENTS,
   GET_VERSIONS,
   LEAVE_DOCUMENT,
+  REORDER_SECTION,
   RESTORE_VERSION,
   SAVE_VERSION,
   SEARCH_DOCUMENTS,
@@ -41,12 +47,40 @@ import {
 } from "@/lib/graphql";
 
 const PAGE_SIZE = 8;
-const SECTION_TYPES = ["summary", "notes", "questions"];
-const SECTION_LABELS = {
-  summary: "Summary",
-  notes: "Notes",
-  questions: "Questions"
-};
+
+function sortByOrder(a, b) {
+  return Number(a.order || 0) - Number(b.order || 0);
+}
+
+function sortSections(items = []) {
+  return [...items].sort((a, b) => {
+    const aIsRoot = a.parentId === null;
+    const bIsRoot = b.parentId === null;
+
+    if (aIsRoot && !bIsRoot) {
+      return -1;
+    }
+
+    if (!aIsRoot && bIsRoot) {
+      return 1;
+    }
+
+    if (String(a.parentId || "") !== String(b.parentId || "")) {
+      return String(a.parentId || "").localeCompare(String(b.parentId || ""));
+    }
+
+    return sortByOrder(a, b);
+  });
+}
+
+function firstPreferredSection(sections) {
+  const roots = sections.filter((section) => section.parentId === null).sort(sortByOrder);
+  return roots[0] || sections[0] || null;
+}
+
+function boundedIndex(nextIndex, maxIndex) {
+  return Math.min(Math.max(Number(nextIndex) || 0, 0), Math.max(maxIndex, 0));
+}
 
 function Workspace() {
   const router = useRouter();
@@ -106,20 +140,23 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
   const [sortDirection, setSortDirection] = useState("DESC");
   const [searchInput, setSearchInput] = useState("");
   const [searchKeyword, setSearchKeyword] = useState("");
-  const [activeSectionType, setActiveSectionType] = useState("summary");
+  const [selectedSectionId, setSelectedSectionId] = useState(null);
   const [sectionDraft, setSectionDraft] = useState("");
   const [saveState, setSaveState] = useState("idle");
   const [presenceUsers, setPresenceUsers] = useState([]);
   const [typingUsers, setTypingUsers] = useState({});
+  const [lastSectionActor, setLastSectionActor] = useState("");
+  const [collabEmail, setCollabEmail] = useState("");
+  const [collabPermission, setCollabPermission] = useState("EDIT");
 
   const saveTimerRef = useRef(null);
-  const activeSectionTypeRef = useRef(activeSectionType);
+  const selectedSectionIdRef = useRef(selectedSectionId);
   const activeSectionIdRef = useRef(null);
   const localEditRef = useRef(false);
 
   useEffect(() => {
-    activeSectionTypeRef.current = activeSectionType;
-  }, [activeSectionType]);
+    selectedSectionIdRef.current = selectedSectionId;
+  }, [selectedSectionId]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -199,17 +236,14 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
     }
   );
 
-  const { data: searchDocsData, refetch: refetchSearch } = useQuery(
-    SEARCH_DOCUMENTS,
-    {
-      variables: {
-        keyword: searchKeyword,
-        ...listingVariables
-      },
-      skip: !token || !searching,
-      fetchPolicy: "cache-and-network"
-    }
-  );
+  const { data: searchDocsData, refetch: refetchSearch } = useQuery(SEARCH_DOCUMENTS, {
+    variables: {
+      keyword: searchKeyword,
+      ...listingVariables
+    },
+    skip: !token || !searching,
+    fetchPolicy: "cache-and-network"
+  });
 
   const {
     data: docData,
@@ -247,20 +281,17 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
     fetchPolicy: "cache-and-network"
   });
 
-  const sections = sectionsData?.getSections || [];
+  const sections = useMemo(() => {
+    return sortSections(sectionsData?.getSections || []);
+  }, [sectionsData]);
 
-  useEffect(() => {
-    if (!activeId || sections.length === 0) {
-      return;
+  const activeSection = useMemo(() => {
+    if (!selectedSectionId) {
+      return null;
     }
 
-    if (!sections.some((section) => section.type === activeSectionType)) {
-      setActiveSectionType(sections[0].type);
-    }
-  }, [activeId, sections, activeSectionType]);
-
-  const activeSection =
-    sections.find((section) => section.type === activeSectionType) || sections[0] || null;
+    return sections.find((section) => String(section.id) === String(selectedSectionId)) || null;
+  }, [sections, selectedSectionId]);
 
   const {
     data: commentsData,
@@ -274,7 +305,10 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
 
   const [createDocument] = useMutation(CREATE_DOCUMENT);
   const [updateDocument, { loading: savingTitle }] = useMutation(UPDATE_DOCUMENT);
-  const [updateSection] = useMutation(UPDATE_SECTION);
+  const [createSection, { loading: creatingSection }] = useMutation(CREATE_SECTION);
+  const [updateSection, { loading: savingSection }] = useMutation(UPDATE_SECTION);
+  const [deleteSection, { loading: deletingSection }] = useMutation(DELETE_SECTION);
+  const [reorderSection, { loading: reorderingSection }] = useMutation(REORDER_SECTION);
   const [saveVersion, { loading: savingVersion }] = useMutation(SAVE_VERSION);
   const [restoreVersion, { loading: restoringVersion }] = useMutation(RESTORE_VERSION);
   const [addComment, { loading: postingComment }] = useMutation(ADD_COMMENT);
@@ -309,6 +343,27 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
   }, [myDocs, sharedDocs, activeId, setActiveId]);
 
   useEffect(() => {
+    if (!activeId) {
+      setSelectedSectionId(null);
+      return;
+    }
+
+    if (!sections.length) {
+      setSelectedSectionId(null);
+      return;
+    }
+
+    const currentIsValid = sections.some(
+      (section) => String(section.id) === String(selectedSectionId || "")
+    );
+
+    if (!currentIsValid) {
+      const preferred = firstPreferredSection(sections);
+      setSelectedSectionId(preferred?.id || null);
+    }
+  }, [activeId, sections, selectedSectionId]);
+
+  useEffect(() => {
     if (presenceQueryData?.documentPresence) {
       setPresenceUsers(presenceQueryData.documentPresence);
     }
@@ -322,10 +377,7 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
       return;
     }
 
-    if (
-      !localEditRef.current ||
-      activeSectionIdRef.current !== activeSection.id
-    ) {
+    if (!localEditRef.current || activeSectionIdRef.current !== activeSection.id) {
       setSectionDraft(activeSection.content || "");
       setSaveState("idle");
       activeSectionIdRef.current = activeSection.id;
@@ -346,7 +398,7 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
         const result = await updatePresence({
           variables: {
             documentId,
-            sectionType: activeSectionTypeRef.current
+            sectionId: selectedSectionIdRef.current
           }
         });
 
@@ -354,7 +406,7 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
           setPresenceUsers(result.data.updatePresence);
         }
       } catch {
-        // Best-effort heartbeat; UI still updates via subscriptions.
+        // Heartbeat is best-effort and subscription updates still flow.
       }
     }
 
@@ -376,7 +428,7 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
     updatePresence({
       variables: {
         documentId: activeId,
-        sectionType: activeSectionType
+        sectionId: selectedSectionId
       }
     })
       .then((result) => {
@@ -385,7 +437,7 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
         }
       })
       .catch(() => {});
-  }, [token, activeId, activeSectionType, updatePresence]);
+  }, [token, activeId, selectedSectionId, updatePresence]);
 
   useSubscription(SECTION_UPDATED, {
     skip: !token || !activeId,
@@ -396,15 +448,17 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
         return;
       }
 
-      if (
-        updatedSection.id === activeSectionIdRef.current &&
-        !localEditRef.current
-      ) {
+      if (updatedSection.updatedBy?.name) {
+        setLastSectionActor(updatedSection.updatedBy.name);
+
+        if (String(updatedSection.updatedBy.id) !== String(meData?.me?.id || "")) {
+          setNotice(`Updated by ${updatedSection.updatedBy.name} in ${updatedSection.title}`);
+        }
+      }
+
+      if (updatedSection.id === activeSectionIdRef.current && !localEditRef.current) {
         setSectionDraft(updatedSection.content || "");
         setSaveState("saved");
-        setNotice(
-          `Updated by collaborator in ${SECTION_LABELS[updatedSection.type] || updatedSection.type}`
-        );
       }
 
       refetchSections();
@@ -469,12 +523,20 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
 
     if (others.length === 1) {
       const one = others[0];
-      const sectionLabel = SECTION_LABELS[one.sectionType] || one.sectionType;
-      return `${one.user?.name || "Someone"} is typing in ${sectionLabel}...`;
+      return `${one.user?.name || "Someone"} is typing in ${
+        one.sectionTitle || "a section"
+      }...`;
     }
 
     return `${others[0].user?.name || "Someone"} and ${others.length - 1} more are typing...`;
   }, [typingUsers]);
+
+  function clearPendingSave() {
+    if (saveTimerRef.current) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+  }
 
   function handleLogout() {
     onLogout();
@@ -482,10 +544,14 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
     setSearchInput("");
     setSearchKeyword("");
     setListOffset(0);
-    setActiveSectionType("summary");
+    setSelectedSectionId(null);
     setSectionDraft("");
+    setSaveState("idle");
     setPresenceUsers([]);
     setTypingUsers({});
+    setLastSectionActor("");
+    setCollabEmail("");
+    clearPendingSave();
     window.localStorage.removeItem("syncnote-token");
     apolloClient.clearStore();
     router.replace("/auth");
@@ -505,17 +571,24 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
       return;
     }
 
-    const result = await createDocument({
-      variables: { title: title.trim(), content: "" }
-    });
+    try {
+      const result = await createDocument({
+        variables: { title: title.trim(), content: "" }
+      });
 
-    const id = result.data?.createDocument?.id;
-    await refreshDocumentCollections();
+      const id = result.data?.createDocument?.id;
+      await refreshDocumentCollections();
 
-    if (id) {
-      setActiveId(id);
-      setActiveSectionType("summary");
-      setNotice("Document created with Summary, Notes, and Questions sections");
+      if (id) {
+        setActiveId(id);
+        setSelectedSectionId(null);
+        setSectionDraft("");
+        setLastSectionActor("");
+      }
+
+      setNotice("Document created");
+    } catch (error) {
+      setNotice(error.message);
     }
   }
 
@@ -539,6 +612,35 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
     }
   }
 
+  async function handleSaveSectionTitle(nextTitle) {
+    if (!activeSection) {
+      return;
+    }
+
+    const normalized = String(nextTitle || "").trim();
+    if (!normalized) {
+      setNotice("Section title is required");
+      return;
+    }
+
+    try {
+      const result = await updateSection({
+        variables: {
+          sectionId: activeSection.id,
+          title: normalized
+        }
+      });
+
+      setLastSectionActor(
+        result.data?.updateSection?.updatedBy?.name || meData?.me?.name || ""
+      );
+      await Promise.all([refetchSections(), refetchDoc(), refreshDocumentCollections()]);
+      setNotice("Section title saved");
+    } catch (error) {
+      setNotice(error.message);
+    }
+  }
+
   function handleSectionInput(nextValue) {
     setSectionDraft(nextValue);
 
@@ -552,36 +654,34 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
     updateTypingStatus({
       variables: {
         documentId: activeId,
-        sectionType: activeSection.type,
+        sectionId: activeSection.id,
         isTyping: true
       }
     }).catch(() => {});
 
-    if (saveTimerRef.current) {
-      window.clearTimeout(saveTimerRef.current);
-    }
+    clearPendingSave();
 
     const sectionId = activeSection.id;
     const documentId = activeId;
-    const sectionType = activeSection.type;
 
     saveTimerRef.current = window.setTimeout(async () => {
       try {
         setSaveState("saving");
 
-        await updateSection({
+        const result = await updateSection({
           variables: {
             sectionId,
             content: nextValue
           }
         });
 
-        await saveVersion({ variables: { documentId } });
-
+        setLastSectionActor(
+          result.data?.updateSection?.updatedBy?.name || meData?.me?.name || ""
+        );
         localEditRef.current = false;
         setSaveState("saved");
 
-        await Promise.all([refetchSections(), refetchDoc(), refetchVersions()]);
+        await Promise.all([refetchSections(), refetchDoc()]);
         await refreshDocumentCollections();
       } catch (error) {
         setSaveState("error");
@@ -590,12 +690,120 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
         updateTypingStatus({
           variables: {
             documentId,
-            sectionType,
+            sectionId,
             isTyping: false
           }
         }).catch(() => {});
       }
     }, 1200);
+  }
+
+  async function handleCreateSection(parentId = null) {
+    if (!activeId) {
+      return;
+    }
+
+    const title = window.prompt(parentId ? "Subsection title" : "Section title");
+    if (!title || !title.trim()) {
+      return;
+    }
+
+    try {
+      const result = await createSection({
+        variables: {
+          documentId: activeId,
+          title: title.trim(),
+          parentId
+        }
+      });
+
+      const created = result.data?.createSection;
+      await Promise.all([refetchSections(), refetchDoc(), refreshDocumentCollections()]);
+
+      if (created?.id) {
+        setSelectedSectionId(created.id);
+      }
+
+      setNotice(parentId ? "Subsection created" : "Section created");
+    } catch (error) {
+      setNotice(error.message);
+    }
+  }
+
+  async function handleDeleteSection(sectionId) {
+    const target = sections.find((section) => String(section.id) === String(sectionId));
+    if (!target) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      target.parentId
+        ? `Delete subsection "${target.title}"?`
+        : `Delete section "${target.title}" and its subsections?`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      clearPendingSave();
+      await deleteSection({ variables: { sectionId: target.id } });
+
+      if (String(selectedSectionId || "") === String(target.id)) {
+        setSelectedSectionId(null);
+        setSectionDraft("");
+      }
+
+      localEditRef.current = false;
+      await Promise.all([
+        refetchSections(),
+        refetchDoc(),
+        refetchVersions(),
+        refreshDocumentCollections()
+      ]);
+      if (activeSection?.id === target.id) {
+        refetchComments().catch(() => {});
+      }
+      setNotice("Section removed");
+    } catch (error) {
+      setNotice(error.message);
+    }
+  }
+
+  async function handleMoveSection(sectionId, targetOrder) {
+    const section = sections.find((item) => String(item.id) === String(sectionId));
+    if (!section) {
+      return;
+    }
+
+    const siblings = sections
+      .filter((item) => String(item.parentId || "") === String(section.parentId || ""))
+      .sort(sortByOrder);
+    const currentIndex = siblings.findIndex((item) => String(item.id) === String(sectionId));
+
+    if (currentIndex === -1) {
+      return;
+    }
+
+    const boundedTarget = boundedIndex(targetOrder, siblings.length - 1);
+    if (boundedTarget === currentIndex) {
+      return;
+    }
+
+    try {
+      await reorderSection({
+        variables: {
+          sectionId,
+          order: boundedTarget
+        }
+      });
+
+      await refetchSections();
+      setNotice("Section order updated");
+    } catch (error) {
+      setNotice(error.message);
+    }
   }
 
   async function handleAddComment(text) {
@@ -637,6 +845,7 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
     }
 
     try {
+      clearPendingSave();
       await restoreVersion({ variables: { versionId } });
       localEditRef.current = false;
 
@@ -654,8 +863,10 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
     }
   }
 
-  async function handleShare(userEmail, permission) {
-    if (!activeId) {
+  async function handleShare(event) {
+    event.preventDefault();
+
+    if (!activeId || !collabEmail.trim()) {
       return;
     }
 
@@ -663,13 +874,14 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
       await shareDocument({
         variables: {
           documentId: activeId,
-          userEmail,
-          permission
+          userEmail: collabEmail.trim(),
+          permission: collabPermission
         }
       });
 
       await Promise.all([refetchDoc(), refetchShared(), refetchMine()]);
-      setNotice(`Shared with ${userEmail} as ${permission}`);
+      setNotice(`Shared with ${collabEmail.trim()} as ${collabPermission}`);
+      setCollabEmail("");
     } catch (error) {
       setNotice(error.message);
     }
@@ -704,23 +916,117 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
   }
 
   function handleSelectDocument(documentId) {
+    clearPendingSave();
     setActiveId(documentId);
-    setActiveSectionType("summary");
+    setSelectedSectionId(null);
+    setSectionDraft("");
+    setSaveState("idle");
     setPresenceUsers([]);
     setTypingUsers({});
+    setLastSectionActor("");
     localEditRef.current = false;
   }
 
-  const liveUsers = presenceUsers.filter((entry) => {
-    return String(entry.userId) !== String(meData?.me?.id || "");
-  });
+  function handleSelectSection(sectionId) {
+    clearPendingSave();
+    setSelectedSectionId(sectionId);
+    setSaveState("idle");
+    localEditRef.current = false;
+  }
+
+  const tabs = [
+    {
+      id: "comments",
+      label: "Comments",
+      badge: comments.length,
+      content: (
+        <CommentsPane
+          comments={comments}
+          onAdd={handleAddComment}
+          loading={postingComment || loadingComments}
+          disabled={!activeSection?.id}
+          sectionLabel={activeSection?.title || "Section"}
+        />
+      )
+    },
+    {
+      id: "versions",
+      label: "Versions",
+      badge: versions.length,
+      content: (
+        <VersionPanel
+          versions={versions}
+          onSaveVersion={handleSaveVersion}
+          onRestoreVersion={handleRestoreVersion}
+          loading={savingVersion || restoringVersion || loadingVersions}
+          disabled={!activeDoc}
+        />
+      )
+    },
+    {
+      id: "collaborators",
+      label: "Collaborators",
+      badge: activeDoc?.collaborators?.length || 0,
+      content: (
+        <section className="collaborators-tab">
+          <h3>Collaborators</h3>
+          <form className="share-form" onSubmit={handleShare}>
+            <input
+              value={collabEmail}
+              onChange={(event) => setCollabEmail(event.target.value)}
+              placeholder="Collaborator email"
+              disabled={!activeDoc || sharingDocument || unsharingDocument}
+            />
+            <select
+              value={collabPermission}
+              onChange={(event) => setCollabPermission(event.target.value)}
+              disabled={!activeDoc || sharingDocument || unsharingDocument}
+            >
+              <option value="EDIT">EDIT</option>
+              <option value="VIEW">VIEW</option>
+            </select>
+            <button
+              type="submit"
+              disabled={!activeDoc || sharingDocument || unsharingDocument}
+            >
+              {sharingDocument ? "Sharing..." : "Share"}
+            </button>
+          </form>
+
+          <div className="collab-list">
+            {(activeDoc?.collaborators || []).map((collaborator) => (
+              <div key={collaborator.id} className="collab-item">
+                <div>
+                  <strong>{collaborator.name}</strong>
+                  <small>{collaborator.email}</small>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleUnshare(collaborator.email)}
+                  disabled={sharingDocument || unsharingDocument}
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+            {(activeDoc?.collaborators || []).length === 0 ? (
+              <p className="empty">No collaborators yet.</p>
+            ) : null}
+          </div>
+        </section>
+      )
+    }
+  ];
+
+  const treeDisabled =
+    !activeDoc || loadingSections || creatingSection || deletingSection || reorderingSection;
 
   return (
     <main className="shell">
-      <header className="hero workspace-hero">
-        <div>
-          <p className="badge">SYNCNOTE / WORKSPACE</p>
-          <h1>Compose, sync, and collaborate without friction.</h1>
+      <header className="workspace-topbar">
+        <div className="workspace-brand">
+          <p className="badge">SYNCNOTE</p>
+          <h1>Workspace</h1>
         </div>
         <div className="hero-meta">
           <p>
@@ -734,17 +1040,6 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
 
       <section className="workspace-frame">
         <aside className="workspace-side">
-          <section className="panel side-card">
-            <h2>Workspace Overview</h2>
-            <p className="list-meta">Manage structured collaboration in real time.</p>
-            <div className="side-stats">
-              <span>My docs: {totalMine}</span>
-              <span>Shared: {totalShared}</span>
-              <span>{searching ? `Search: ${totalSearch}` : "Sections + history enabled"}</span>
-              <span>Active users: {liveUsers.length}</span>
-            </div>
-          </section>
-
           <section className="panel filters-panel">
             <input
               value={searchInput}
@@ -765,30 +1060,6 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
             </select>
           </section>
 
-          <section className="panel section-panel">
-            <h2>Sections</h2>
-            <div className="section-switcher">
-              {SECTION_TYPES.map((type) => (
-                <button
-                  key={type}
-                  type="button"
-                  className={
-                    activeSectionType === type ? "section-chip active" : "section-chip"
-                  }
-                  disabled={!activeDoc}
-                  onClick={() => setActiveSectionType(type)}
-                >
-                  {SECTION_LABELS[type]}
-                </button>
-              ))}
-            </div>
-            <p className="list-meta">
-              {activeSection
-                ? `Editing ${SECTION_LABELS[activeSection.type] || activeSection.type}`
-                : "Pick a document to start editing sections."}
-            </p>
-          </section>
-
           <DocumentList
             myDocs={myDocs}
             sharedDocs={sharedDocs}
@@ -804,6 +1075,20 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
             canPrev={listOffset > 0}
             canNext={listOffset + PAGE_SIZE < activeTotal}
           />
+
+          <section className="panel sections-panel">
+            <SectionsTree
+              sections={sections}
+              selectedSectionId={selectedSectionId}
+              onSelect={handleSelectSection}
+              onAddRoot={() => handleCreateSection(null)}
+              onAddChild={(parentId) => handleCreateSection(parentId)}
+              onDelete={handleDeleteSection}
+              onMove={handleMoveSection}
+              disabled={treeDisabled}
+              loading={Boolean(activeDoc) && loadingSections}
+            />
+          </section>
         </aside>
 
         <section className="workspace-main">
@@ -815,34 +1100,23 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
 
           <EditorPane
             document={activeDoc}
-            sectionType={activeSection?.type || activeSectionType}
+            section={activeSection}
             sectionContent={sectionDraft}
             onSectionChange={handleSectionInput}
             saveState={saveState}
             saving={savingTitle || loadingDoc || loadingSections}
+            savingSection={savingSection}
             onSaveTitle={handleSaveTitle}
-            onShare={handleShare}
-            onUnshare={handleUnshare}
-            sharing={sharingDocument || unsharingDocument}
-            versions={versions}
-            onSaveVersion={handleSaveVersion}
-            onRestoreVersion={handleRestoreVersion}
-            versionLoading={savingVersion || restoringVersion || loadingVersions}
+            onSaveSectionTitle={handleSaveSectionTitle}
             activeUsers={presenceUsers}
             currentUserId={meData?.me?.id || null}
             typingNotice={typingNotice}
-            sectionLabel={SECTION_LABELS[activeSection?.type] || "Section"}
+            updatedByName={activeSection?.updatedBy?.name || lastSectionActor}
           />
         </section>
 
         <aside className="workspace-right">
-          <CommentsPane
-            comments={comments}
-            onAdd={handleAddComment}
-            loading={postingComment || loadingComments}
-            disabled={!activeSection?.id}
-            sectionLabel={SECTION_LABELS[activeSection?.type] || "Section"}
-          />
+          <TabsPanel tabs={tabs} defaultTabId="comments" />
         </aside>
       </section>
     </main>

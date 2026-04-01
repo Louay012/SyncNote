@@ -28,8 +28,11 @@ export const typeDefs = `#graphql
   type Section {
     id: ID!
     documentId: ID!
-    type: String!
+    title: String!
     content: String!
+    parentId: ID
+    order: Int!
+    updatedBy: User
     createdAt: DateTime!
     updatedAt: DateTime!
   }
@@ -45,7 +48,8 @@ export const typeDefs = `#graphql
   type Presence {
     userId: ID!
     user: User!
-    sectionType: String!
+    sectionId: ID
+    sectionTitle: String
     updatedAt: DateTime!
   }
 
@@ -53,7 +57,8 @@ export const typeDefs = `#graphql
     documentId: ID!
     userId: ID!
     user: User!
-    sectionType: String!
+    sectionId: ID
+    sectionTitle: String
     isTyping: Boolean!
     at: DateTime!
   }
@@ -138,7 +143,11 @@ export const typeDefs = `#graphql
     updateDocument(id: ID!, title: String, content: String): Document!
     deleteDocument(id: ID!): Boolean!
 
-    updateSection(sectionId: ID!, content: String!): Section!
+    createSection(documentId: ID!, title: String!, parentId: ID): Section!
+    updateSection(sectionId: ID!, title: String, content: String): Section!
+    deleteSection(sectionId: ID!): Boolean!
+    reorderSection(sectionId: ID!, order: Int!): Section!
+
     saveVersion(documentId: ID!): Version!
     restoreVersion(versionId: ID!): Document!
 
@@ -146,8 +155,8 @@ export const typeDefs = `#graphql
     shareDocument(documentId: ID!, userEmail: String!, permission: SharePermission = EDIT): Share!
     unshareDocument(documentId: ID!, userEmail: String!): Boolean!
 
-    updateTypingStatus(documentId: ID!, sectionType: String!, isTyping: Boolean!): TypingEvent!
-    updatePresence(documentId: ID!, sectionType: String = "summary"): [Presence!]!
+    updateTypingStatus(documentId: ID!, sectionId: ID, isTyping: Boolean!): TypingEvent!
+    updatePresence(documentId: ID!, sectionId: ID): [Presence!]!
     leaveDocument(documentId: ID!): Boolean!
   }
 

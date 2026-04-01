@@ -8,32 +8,29 @@ function formatDate(dateString) {
 
 export default function EditorPane({
   document,
-  sectionType,
-  sectionLabel,
+  section,
   sectionContent,
   onSectionChange,
   saveState,
   saving,
+  savingSection,
   onSaveTitle,
-  onShare,
-  onUnshare,
-  sharing,
-  versions,
-  onSaveVersion,
-  onRestoreVersion,
-  versionLoading,
+  onSaveSectionTitle,
   activeUsers,
   currentUserId,
-  typingNotice
+  typingNotice,
+  updatedByName
 }) {
   const [title, setTitle] = useState("");
-  const [email, setEmail] = useState("");
-  const [permission, setPermission] = useState("EDIT");
-  const [showVersions, setShowVersions] = useState(false);
+  const [sectionTitleDraft, setSectionTitleDraft] = useState("");
 
   useEffect(() => {
     setTitle(document?.title || "");
   }, [document?.id, document?.title]);
+
+  useEffect(() => {
+    setSectionTitleDraft(section?.title || "");
+  }, [section?.id, section?.title]);
 
   const saveLabel = useMemo(() => {
     if (saveState === "saving") {
@@ -66,10 +63,16 @@ export default function EditorPane({
     );
   }
 
+  const sectionLabel = section?.parentId ? "Subsection" : "Section";
+
   return (
     <section className="panel editor-panel">
       <div className="editor-header">
-        <input value={title} onChange={(event) => setTitle(event.target.value)} />
+        <input
+          value={title}
+          onChange={(event) => setTitle(event.target.value)}
+          placeholder="Document title"
+        />
         <button type="button" disabled={saving} onClick={() => onSaveTitle(title)}>
           {saving ? "Saving..." : "Save title"}
         </button>
@@ -77,120 +80,70 @@ export default function EditorPane({
 
       <div className="editor-toolbar">
         <p className="status-pill">{saveLabel}</p>
-        <div className="toolbar-actions">
-          <button type="button" onClick={onSaveVersion} disabled={versionLoading}>
-            {versionLoading ? "Saving version..." : "Save version"}
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowVersions((current) => !current)}
-            className={showVersions ? "active" : ""}
-          >
-            Version history ({versions.length})
-          </button>
+        <div className="editor-stats">
+          <p className="editor-meta">Owner: {document.owner?.name || "Unknown"}</p>
+          <p className="editor-meta">Last update: {formatDate(document.updatedAt)}</p>
+          <p className="editor-meta">
+            Updated by: {updatedByName || document.owner?.name || "Unknown"}
+          </p>
         </div>
       </div>
 
-      <div className="section-heading">
-        <h3>{sectionLabel}</h3>
-        <p className="editor-meta">Editing section type: {sectionType}</p>
+      <div className="section-title-row">
+        <input
+          value={sectionTitleDraft}
+          onChange={(event) => setSectionTitleDraft(event.target.value)}
+          placeholder="Section title"
+          disabled={!section}
+        />
+        <button
+          type="button"
+          disabled={!section || savingSection}
+          onClick={() => onSaveSectionTitle(sectionTitleDraft)}
+        >
+          {savingSection ? "Saving..." : `Save ${sectionLabel.toLowerCase()} title`}
+        </button>
       </div>
+
+      <p className="editor-meta">
+        {section
+          ? `Editing ${sectionLabel.toLowerCase()}: ${section.title}`
+          : "Select a section to start writing"}
+      </p>
 
       <textarea
         value={sectionContent}
         onChange={(event) => onSectionChange(event.target.value)}
-        placeholder={`Write ${sectionLabel.toLowerCase()} here...`}
+        placeholder={
+          section
+            ? `Write content for ${section.title.toLowerCase()}...`
+            : "Pick a section from the left sidebar"
+        }
+        disabled={!section}
       />
 
-      <p className="editor-meta">Last update: {formatDate(document.updatedAt)}</p>
-      <p className="editor-meta">Owner: {document.owner?.name || "Unknown"}</p>
-
       <section className="presence-panel">
-        <h3>Active collaborators</h3>
-        <div className="presence-list">
+        <h3>Live activity</h3>
+        <div className="presence-avatars">
           {liveUsers.length === 0 ? <p className="empty">No active collaborators right now.</p> : null}
           {liveUsers.map((entry) => (
-            <span key={entry.userId} className="presence-chip">
-              {entry.user?.name || "User"} in {entry.sectionType}
+            <span
+              key={entry.userId}
+              className="presence-avatar"
+              title={`${entry.user?.name || "User"} in ${entry.sectionTitle || "a section"}`}
+            >
+              {(entry.user?.name || "U").slice(0, 1).toUpperCase()}
+            </span>
+          ))}
+        </div>
+        <div className="presence-list">
+          {liveUsers.map((entry) => (
+            <span key={`detail-${entry.userId}`} className="presence-chip">
+              {entry.user?.name || "User"} in {entry.sectionTitle || "a section"}
             </span>
           ))}
         </div>
         {typingNotice ? <p className="typing-indicator">{typingNotice}</p> : null}
-      </section>
-
-      {showVersions ? (
-        <section className="version-panel">
-          <h3>Version history</h3>
-          <div className="version-list">
-            {versions.length === 0 ? <p className="empty">No versions yet.</p> : null}
-            {versions.map((version) => (
-              <article key={version.id} className="version-item">
-                <div>
-                  <strong>{formatDate(version.createdAt)}</strong>
-                  <small>By {version.createdBy?.name || "Unknown"}</small>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => onRestoreVersion(version.id)}
-                  disabled={versionLoading}
-                >
-                  Restore
-                </button>
-              </article>
-            ))}
-          </div>
-        </section>
-      ) : null}
-
-      <section className="share-panel">
-        <h3>Collaborators</h3>
-        <form
-          className="share-form"
-          onSubmit={async (event) => {
-            event.preventDefault();
-            if (!email.trim()) {
-              return;
-            }
-            await onShare(email.trim(), permission);
-            setEmail("");
-          }}
-        >
-          <input
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            placeholder="Collaborator email"
-            disabled={sharing}
-          />
-          <select
-            value={permission}
-            onChange={(event) => setPermission(event.target.value)}
-            disabled={sharing}
-          >
-            <option value="EDIT">EDIT</option>
-            <option value="VIEW">VIEW</option>
-          </select>
-          <button type="submit" disabled={sharing}>
-            {sharing ? "Sharing..." : "Share"}
-          </button>
-        </form>
-        <div className="collab-list">
-          {(document.collaborators || []).map((collaborator) => (
-            <div key={collaborator.id} className="collab-item">
-              <span>{collaborator.name}</span>
-              <small>{collaborator.email}</small>
-              <button
-                type="button"
-                onClick={() => onUnshare(collaborator.email)}
-                disabled={sharing}
-              >
-                Remove
-              </button>
-            </div>
-          ))}
-          {(document.collaborators || []).length === 0 ? (
-            <p className="empty">No collaborators yet.</p>
-          ) : null}
-        </div>
       </section>
     </section>
   );

@@ -5,14 +5,6 @@ export const pubsub = new PubSub();
 const PRESENCE_TTL_MS = 45_000;
 const presenceByDocument = new Map();
 
-function normalizeSectionType(sectionType) {
-  const normalized = String(sectionType || "summary").trim().toLowerCase();
-  if (!["summary", "notes", "questions"].includes(normalized)) {
-    return "summary";
-  }
-  return normalized;
-}
-
 function getDocumentPresenceMap(documentId, create = false) {
   const key = String(documentId);
   if (!presenceByDocument.has(key) && create) {
@@ -49,16 +41,19 @@ function serializePresence(documentId) {
   return Array.from(map.values()).map((item) => ({
     documentId: String(documentId),
     userId: String(item.userId),
-    sectionType: item.sectionType,
+    sectionId: item.sectionId,
+    sectionTitle: item.sectionTitle,
     updatedAt: new Date(item.lastSeen).toISOString()
   }));
 }
 
-export function touchPresence({ documentId, user, sectionType = "summary" }) {
+export function touchPresence({ documentId, user, sectionId = null, sectionTitle = "" }) {
   const map = getDocumentPresenceMap(documentId, true);
   map.set(String(user.id), {
     userId: String(user.id),
-    sectionType: normalizeSectionType(sectionType),
+    sectionId:
+      sectionId !== null && sectionId !== undefined ? String(sectionId) : null,
+    sectionTitle: String(sectionTitle || ""),
     lastSeen: Date.now()
   });
 

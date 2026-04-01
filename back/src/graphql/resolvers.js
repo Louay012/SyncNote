@@ -90,6 +90,10 @@ function validateTextInput(text, fieldName, max = 2000) {
   return normalized;
 }
 
+function validateSectionTitle(title) {
+  return validateTextInput(title, "Section title", 120);
+}
+
 function validateSectionContent(content) {
   const normalized = String(content ?? "");
   if (normalized.length > 100_000) {
@@ -123,6 +127,36 @@ function dateValue(value) {
     throw new Error("Invalid Date value");
   }
   return parsed.toISOString();
+}
+
+function firstRootSection(sections = []) {
+  return sections
+    .filter((section) => section.parentId === null)
+    .sort((a, b) => a.order - b.order)[0];
+}
+
+async function syncLegacyDocumentContent(documentId) {
+  const sections = await Section.findByDocumentId(documentId);
+  const root = firstRootSection(sections);
+
+  await Document.findByIdAndUpdate(
+    documentId,
+    { content: root?.content || "" },
+    { new: true }
+  );
+
+  return sections;
+}
+
+function withActor(section, userId) {
+  if (!section) {
+    return section;
+  }
+
+  return {
+    ...section,
+    updatedById: String(userId)
+  };
 }
 
 export const resolvers = {
@@ -268,12 +302,11 @@ export const resolvers = {
         requireNonEmpty(name, "Name");
       }
 
-      const updatedUser = await User.findByIdAndUpdate(
+      return User.findByIdAndUpdate(
         user.id,
         { ...(name ? { name: name.trim() } : {}) },
         { new: true }
       );
-      return updatedUser;
     },
 
     createDocument: async (_, { title, content = "" }, contextValue) => {
@@ -322,11 +355,13 @@ export const resolvers = {
 
       if (typeof content === "string") {
         await Section.ensureDefaults(id, content);
-        const notesSection = await Section.findByDocumentAndType(id, "notes");
-        if (notesSection) {
-          const updatedNotes = await Section.updateContent(notesSection.id, content);
+        const sections = await Section.findByDocumentId(id);
+        const root = firstRootSection(sections);
+
+        if (root) {
+          const updatedRoot = await Section.updateContent(root.id, content);
           await pubsub.publish(EVENTS.SECTION_UPDATED, {
-            sectionUpdated: updatedNotes,
+            sectionUpdated: withActor(updatedRoot, user.id),
             documentId: id
           });
         }
@@ -335,39 +370,86 @@ export const resolvers = {
       return document;
     },
 
-    updateSection: async (_, { sectionId, content }, contextValue) => {
+    createSection: async (_, { documentId, title, parentId }, contextValue) => {
+      const user = requireAuth(contextValue);
+      ensureObjectId(documentId, "document id");
+
+      if (!(await canEditDocument(user.id, documentId))) {
+        throw new Error("You do not have permission to edit this document");
+      }
+
+      let safeParentId = null;
+
+      if (parentId !== null && parentId !== undefined) {
+        ensureObjectId(parentId, "parent section id");
+        const parent = await ensureSectionEditAccess(user.id, parentId);
+
+        if (String(parent.documentId) !== String(documentId)) {
+          throw new Error("Parent section belongs to a different document");
+        }
+
+        if (parent.parentId !== null) {
+          throw new Error("Cannot add subsection to another subsection");
+        }
+
+        safeParentId = parent.id;
+      }
+
+      const created = await Section.create({
+        documentId,
+        title: validateSectionTitle(title),
+        parentId: safeParentId,
+        content: ""
+      });
+
+      await syncLegacyDocumentContent(documentId);
+      const payload = withActor(created, user.id);
+
+      await pubsub.publish(EVENTS.SECTION_UPDATED, {
+        sectionUpdated: payload,
+        documentId: created.documentId
+      });
+
+      return payload;
+    },
+
+    updateSection: async (_, { sectionId, title, content }, contextValue) => {
       const user = requireAuth(contextValue);
       ensureObjectId(sectionId, "section id");
       await ensureSectionEditAccess(user.id, sectionId);
 
-      const updatedSection = await Section.updateContent(
-        sectionId,
-        validateSectionContent(content)
-      );
+      const updates = {};
 
+      if (typeof title === "string") {
+        updates.title = validateSectionTitle(title);
+      }
+
+      if (typeof content === "string") {
+        updates.content = validateSectionContent(content);
+      }
+
+      if (!Object.keys(updates).length) {
+        throw new Error("At least one field (title or content) must be provided");
+      }
+
+      const updatedSection = await Section.updateById(sectionId, updates);
       if (!updatedSection) {
         throw new Error("Section not found");
       }
 
-      if (updatedSection.type === "notes") {
-        await Document.findByIdAndUpdate(
-          updatedSection.documentId,
-          { content: updatedSection.content },
-          { new: true }
-        );
-      } else {
-        await Document.touchUpdatedAt(updatedSection.documentId);
-      }
+      await syncLegacyDocumentContent(updatedSection.documentId);
 
+      const payload = withActor(updatedSection, user.id);
       const presenceState = touchPresence({
         documentId: updatedSection.documentId,
         user,
-        sectionType: updatedSection.type
+        sectionId: updatedSection.id,
+        sectionTitle: updatedSection.title
       });
 
       await Promise.all([
         pubsub.publish(EVENTS.SECTION_UPDATED, {
-          sectionUpdated: updatedSection,
+          sectionUpdated: payload,
           documentId: updatedSection.documentId
         }),
         pubsub.publish(EVENTS.USER_PRESENCE_CHANGED, {
@@ -376,7 +458,52 @@ export const resolvers = {
         })
       ]);
 
-      return updatedSection;
+      return payload;
+    },
+
+    deleteSection: async (_, { sectionId }, contextValue) => {
+      const user = requireAuth(contextValue);
+      ensureObjectId(sectionId, "section id");
+      const section = await ensureSectionEditAccess(user.id, sectionId);
+
+      const deleted = await Section.deleteById(sectionId);
+      if (!deleted) {
+        return true;
+      }
+
+      await Section.ensureDefaults(section.documentId, "");
+      const sections = await syncLegacyDocumentContent(section.documentId);
+      const first = sections[0] || null;
+
+      if (first) {
+        await pubsub.publish(EVENTS.SECTION_UPDATED, {
+          sectionUpdated: withActor(first, user.id),
+          documentId: section.documentId
+        });
+      }
+
+      return true;
+    },
+
+    reorderSection: async (_, { sectionId, order }, contextValue) => {
+      const user = requireAuth(contextValue);
+      ensureObjectId(sectionId, "section id");
+      await ensureSectionEditAccess(user.id, sectionId);
+
+      const reordered = await Section.reorder(sectionId, order);
+      if (!reordered) {
+        throw new Error("Section not found");
+      }
+
+      await syncLegacyDocumentContent(reordered.documentId);
+      const payload = withActor(reordered, user.id);
+
+      await pubsub.publish(EVENTS.SECTION_UPDATED, {
+        sectionUpdated: payload,
+        documentId: reordered.documentId
+      });
+
+      return payload;
     },
 
     saveVersion: async (_, { documentId }, contextValue) => {
@@ -411,21 +538,12 @@ export const resolvers = {
       const snapshot = parseVersionSnapshot(version.snapshotRaw);
       const updatedSections = await Section.applySnapshot(version.documentId, snapshot);
 
-      const notesSection = updatedSections.find((item) => item.type === "notes");
-      if (notesSection) {
-        await Document.findByIdAndUpdate(
-          version.documentId,
-          { content: notesSection.content },
-          { new: true }
-        );
-      } else {
-        await Document.touchUpdatedAt(version.documentId);
-      }
+      await syncLegacyDocumentContent(version.documentId);
 
       await Promise.all(
         updatedSections.map((sectionItem) =>
           pubsub.publish(EVENTS.SECTION_UPDATED, {
-            sectionUpdated: sectionItem,
+            sectionUpdated: withActor(sectionItem, user.id),
             documentId: sectionItem.documentId
           })
         )
@@ -523,24 +641,35 @@ export const resolvers = {
 
     updateTypingStatus: async (
       _,
-      { documentId, sectionType, isTyping },
+      { documentId, sectionId, isTyping },
       contextValue
     ) => {
       const user = requireAuth(contextValue);
       ensureObjectId(documentId, "document id");
       await ensureDocumentAccess(user.id, documentId);
 
-      const normalizedSectionType = Section.normalizeType(sectionType);
+      let safeSectionId = null;
+      let sectionTitle = null;
+
+      if (sectionId !== null && sectionId !== undefined) {
+        ensureObjectId(sectionId, "section id");
+        const section = await ensureSectionAccess(user.id, sectionId);
+        safeSectionId = section.id;
+        sectionTitle = section.title;
+      }
+
       const presenceState = touchPresence({
         documentId,
         user,
-        sectionType: normalizedSectionType
+        sectionId: safeSectionId,
+        sectionTitle
       });
 
       const payload = {
         documentId: String(documentId),
         userId: String(user.id),
-        sectionType: normalizedSectionType,
+        sectionId: safeSectionId,
+        sectionTitle,
         isTyping: Boolean(isTyping),
         at: new Date().toISOString()
       };
@@ -559,16 +688,26 @@ export const resolvers = {
       return payload;
     },
 
-    updatePresence: async (_, { documentId, sectionType }, contextValue) => {
+    updatePresence: async (_, { documentId, sectionId }, contextValue) => {
       const user = requireAuth(contextValue);
       ensureObjectId(documentId, "document id");
       await ensureDocumentAccess(user.id, documentId);
 
-      const normalizedSectionType = Section.normalizeType(sectionType || "summary");
+      let safeSectionId = null;
+      let sectionTitle = null;
+
+      if (sectionId !== null && sectionId !== undefined) {
+        ensureObjectId(sectionId, "section id");
+        const section = await ensureSectionAccess(user.id, sectionId);
+        safeSectionId = section.id;
+        sectionTitle = section.title;
+      }
+
       const presenceState = touchPresence({
         documentId,
         user,
-        sectionType: normalizedSectionType
+        sectionId: safeSectionId,
+        sectionTitle
       });
 
       await pubsub.publish(EVENTS.USER_PRESENCE_CHANGED, {
@@ -656,8 +795,9 @@ export const resolvers = {
     owner: async (doc) => User.findById(doc.owner),
 
     content: async (doc) => {
-      const notesSection = await Section.findByDocumentAndType(doc.id, "notes");
-      return notesSection?.content ?? doc.content ?? "";
+      const sections = await Section.findByDocumentId(doc.id);
+      const root = firstRootSection(sections);
+      return root?.content ?? doc.content ?? "";
     },
 
     collaborators: async (doc) => {
@@ -672,6 +812,16 @@ export const resolvers = {
     },
 
     comments: async (doc) => Comment.find({ document: doc.id })
+  },
+
+  Section: {
+    updatedBy: async (section) => {
+      if (!section.updatedById) {
+        return null;
+      }
+
+      return User.findById(section.updatedById);
+    }
   },
 
   Comment: {

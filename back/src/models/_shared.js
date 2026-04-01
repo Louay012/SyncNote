@@ -59,8 +59,12 @@ export function mapSection(row) {
     id: String(row.id),
     documentId: String(row.document_id),
     document: String(row.document_id),
+    title: row.title,
+    parentId: row.parent_id !== null && row.parent_id !== undefined ? String(row.parent_id) : null,
+    order: Number(row.order_index || 0),
     type: row.type,
     content: row.content,
+    updatedById: row.updated_by_id ? String(row.updated_by_id) : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };

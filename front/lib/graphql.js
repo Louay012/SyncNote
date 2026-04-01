@@ -149,9 +149,15 @@ export const GET_SECTIONS = gql`
     getSections(documentId: $documentId) {
       id
       documentId
-      type
+      title
       content
+      parentId
+      order
       updatedAt
+      updatedBy {
+        id
+        name
+      }
     }
   }
 `;
@@ -193,7 +199,8 @@ export const GET_DOCUMENT_PRESENCE = gql`
   query GetDocumentPresence($documentId: ID!) {
     documentPresence(documentId: $documentId) {
       userId
-      sectionType
+      sectionId
+      sectionTitle
       updatedAt
       user {
         id
@@ -224,14 +231,61 @@ export const UPDATE_DOCUMENT = gql`
   }
 `;
 
-export const UPDATE_SECTION = gql`
-  mutation UpdateSection($sectionId: ID!, $content: String!) {
-    updateSection(sectionId: $sectionId, content: $content) {
+export const CREATE_SECTION = gql`
+  mutation CreateSection($documentId: ID!, $title: String!, $parentId: ID) {
+    createSection(documentId: $documentId, title: $title, parentId: $parentId) {
       id
       documentId
-      type
+      title
+      parentId
+      order
       content
       updatedAt
+      updatedBy {
+        id
+        name
+      }
+    }
+  }
+`;
+
+export const UPDATE_SECTION = gql`
+  mutation UpdateSection($sectionId: ID!, $title: String, $content: String) {
+    updateSection(sectionId: $sectionId, title: $title, content: $content) {
+      id
+      documentId
+      title
+      content
+      parentId
+      order
+      updatedAt
+      updatedBy {
+        id
+        name
+      }
+    }
+  }
+`;
+
+export const DELETE_SECTION = gql`
+  mutation DeleteSection($sectionId: ID!) {
+    deleteSection(sectionId: $sectionId)
+  }
+`;
+
+export const REORDER_SECTION = gql`
+  mutation ReorderSection($sectionId: ID!, $order: Int!) {
+    reorderSection(sectionId: $sectionId, order: $order) {
+      id
+      documentId
+      title
+      parentId
+      order
+      updatedAt
+      updatedBy {
+        id
+        name
+      }
     }
   }
 `;
@@ -298,15 +352,12 @@ export const UNSHARE_DOCUMENT = gql`
 `;
 
 export const UPDATE_TYPING_STATUS = gql`
-  mutation UpdateTypingStatus($documentId: ID!, $sectionType: String!, $isTyping: Boolean!) {
-    updateTypingStatus(
-      documentId: $documentId
-      sectionType: $sectionType
-      isTyping: $isTyping
-    ) {
+  mutation UpdateTypingStatus($documentId: ID!, $sectionId: ID, $isTyping: Boolean!) {
+    updateTypingStatus(documentId: $documentId, sectionId: $sectionId, isTyping: $isTyping) {
       documentId
       userId
-      sectionType
+      sectionId
+      sectionTitle
       isTyping
       at
       user {
@@ -318,10 +369,11 @@ export const UPDATE_TYPING_STATUS = gql`
 `;
 
 export const UPDATE_PRESENCE = gql`
-  mutation UpdatePresence($documentId: ID!, $sectionType: String) {
-    updatePresence(documentId: $documentId, sectionType: $sectionType) {
+  mutation UpdatePresence($documentId: ID!, $sectionId: ID) {
+    updatePresence(documentId: $documentId, sectionId: $sectionId) {
       userId
-      sectionType
+      sectionId
+      sectionTitle
       updatedAt
       user {
         id
@@ -343,9 +395,15 @@ export const SECTION_UPDATED = gql`
     sectionUpdated(documentId: $documentId) {
       id
       documentId
-      type
+      title
       content
+      parentId
+      order
       updatedAt
+      updatedBy {
+        id
+        name
+      }
     }
   }
 `;
@@ -373,7 +431,8 @@ export const USER_TYPING = gql`
     userTyping(documentId: $documentId) {
       documentId
       userId
-      sectionType
+      sectionId
+      sectionTitle
       isTyping
       at
       user {
@@ -388,7 +447,8 @@ export const USER_PRESENCE_CHANGED = gql`
   subscription OnUserPresenceChanged($documentId: ID!) {
     userPresenceChanged(documentId: $documentId) {
       userId
-      sectionType
+      sectionId
+      sectionTitle
       updatedAt
       user {
         id

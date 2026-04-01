@@ -1,42 +1,80 @@
 import { query } from "../db/postgres.js";
 import { mapSection } from "./_shared.js";
 
-export const SECTION_TYPES = ["summary", "notes", "questions"];
+const baseSelect = `
+  SELECT id, document_id, title, content, parent_id, order_index, type, created_at, updated_at
+  FROM sections
+`;
 
-function normalizeSectionType(type) {
-  const normalized = String(type || "").trim().toLowerCase();
-  if (!SECTION_TYPES.includes(normalized)) {
-    throw new Error("Section type must be summary, notes, or questions");
+function normalizeTitle(title) {
+  const value = String(title || "").trim();
+  if (!value) {
+    throw new Error("Section title is required");
   }
-  return normalized;
+
+  if (value.length > 120) {
+    throw new Error("Section title is too long");
+  }
+
+  return value;
+}
+
+function normalizeContent(content) {
+  const value = String(content ?? "");
+  if (value.length > 100_000) {
+    throw new Error("Section content is too long");
+  }
+  return value;
+}
+
+function normalizeOrder(order) {
+  const parsed = Number(order);
+  if (!Number.isFinite(parsed)) {
+    throw new Error("Order must be a number");
+  }
+
+  return Math.max(Math.trunc(parsed), 0);
+}
+
+async function getSiblingIds(documentId, parentId) {
+  const { rows } = await query(
+    `
+      SELECT id
+      FROM sections
+      WHERE document_id = $1
+        AND parent_id IS NOT DISTINCT FROM $2
+      ORDER BY order_index, id
+    `,
+    [documentId, parentId]
+  );
+
+  return rows.map((row) => String(row.id));
 }
 
 const Section = {
-  normalizeType: normalizeSectionType,
-
-  async ensureDefaults(documentId, notesContent = "") {
-    await query(
-      `
-        INSERT INTO sections(document_id, type, content)
-        VALUES
-          ($1, 'summary', ''),
-          ($1, 'notes', $2),
-          ($1, 'questions', '')
-        ON CONFLICT (document_id, type) DO NOTHING
-      `,
-      [documentId, String(notesContent || "")]
+  async ensureDefaults(documentId, initialContent = "") {
+    const countResult = await query(
+      "SELECT COUNT(*)::int AS total FROM sections WHERE document_id = $1",
+      [documentId]
     );
+
+    const total = Number(countResult.rows[0]?.total || 0);
+    if (total === 0) {
+      await query(
+        `
+          INSERT INTO sections(document_id, title, content, parent_id, order_index, type)
+          VALUES ($1, 'Overview', $2, NULL, 0, 'notes')
+        `,
+        [documentId, normalizeContent(initialContent)]
+      );
+    }
 
     return this.findByDocumentId(documentId);
   },
 
   async findById(id) {
     const { rows } = await query(
-      `
-        SELECT id, document_id, type, content, created_at, updated_at
-        FROM sections
-        WHERE id = $1
-      `,
+      `${baseSelect} WHERE id = $1`,
       [id]
     );
 
@@ -46,15 +84,9 @@ const Section = {
   async findByDocumentId(documentId) {
     const { rows } = await query(
       `
-        SELECT id, document_id, type, content, created_at, updated_at
-        FROM sections
+        ${baseSelect}
         WHERE document_id = $1
-        ORDER BY CASE type
-          WHEN 'summary' THEN 1
-          WHEN 'notes' THEN 2
-          WHEN 'questions' THEN 3
-          ELSE 4
-        END
+        ORDER BY COALESCE(parent_id, id), parent_id NULLS FIRST, order_index, id
       `,
       [documentId]
     );
@@ -63,76 +95,234 @@ const Section = {
   },
 
   async findByDocumentAndType(documentId, type) {
-    const normalizedType = normalizeSectionType(type);
     const { rows } = await query(
       `
-        SELECT id, document_id, type, content, created_at, updated_at
-        FROM sections
-        WHERE document_id = $1 AND type = $2
+        ${baseSelect}
+        WHERE document_id = $1
+          AND type = $2
+        ORDER BY order_index, id
         LIMIT 1
       `,
-      [documentId, normalizedType]
+      [documentId, String(type || "")]
+    );
+
+    return mapSection(rows[0]);
+  },
+
+  async create({ documentId, title, parentId = null, content = "" }) {
+    const safeTitle = normalizeTitle(title);
+    const safeContent = normalizeContent(content);
+    let safeParentId = parentId;
+
+    if (safeParentId !== null && safeParentId !== undefined) {
+      const parent = await this.findById(safeParentId);
+      if (!parent) {
+        throw new Error("Parent section not found");
+      }
+
+      if (String(parent.documentId) !== String(documentId)) {
+        throw new Error("Parent section belongs to a different document");
+      }
+
+      if (parent.parentId !== null) {
+        throw new Error("Cannot create subsection under another subsection");
+      }
+
+      safeParentId = parent.id;
+    } else {
+      safeParentId = null;
+    }
+
+    const siblingResult = await query(
+      `
+        SELECT COALESCE(MAX(order_index), -1) + 1 AS next_order
+        FROM sections
+        WHERE document_id = $1
+          AND parent_id IS NOT DISTINCT FROM $2
+      `,
+      [documentId, safeParentId]
+    );
+
+    const nextOrder = Number(siblingResult.rows[0]?.next_order || 0);
+
+    const { rows } = await query(
+      `
+        INSERT INTO sections(document_id, title, content, parent_id, order_index)
+        VALUES ($1, $2, $3, $4, $5)
+        RETURNING id, document_id, title, content, parent_id, order_index, type, created_at, updated_at
+      `,
+      [documentId, safeTitle, safeContent, safeParentId, nextOrder]
+    );
+
+    return mapSection(rows[0]);
+  },
+
+  async updateById(id, updates = {}) {
+    const values = [];
+    const sets = [];
+
+    if (Object.hasOwn(updates, "title")) {
+      values.push(normalizeTitle(updates.title));
+      sets.push(`title = $${values.length}`);
+    }
+
+    if (Object.hasOwn(updates, "content")) {
+      values.push(normalizeContent(updates.content));
+      sets.push(`content = $${values.length}`);
+    }
+
+    if (Object.hasOwn(updates, "order")) {
+      values.push(normalizeOrder(updates.order));
+      sets.push(`order_index = $${values.length}`);
+    }
+
+    if (!sets.length) {
+      return this.findById(id);
+    }
+
+    values.push(id);
+
+    const { rows } = await query(
+      `
+        UPDATE sections
+        SET ${sets.join(", ")}, updated_at = NOW()
+        WHERE id = $${values.length}
+        RETURNING id, document_id, title, content, parent_id, order_index, type, created_at, updated_at
+      `,
+      values
     );
 
     return mapSection(rows[0]);
   },
 
   async updateContent(id, content) {
+    return this.updateById(id, { content });
+  },
+
+  async rename(id, title) {
+    return this.updateById(id, { title });
+  },
+
+  async deleteById(id) {
     const { rows } = await query(
       `
-        UPDATE sections
-        SET content = $1, updated_at = NOW()
-        WHERE id = $2
-        RETURNING id, document_id, type, content, created_at, updated_at
+        DELETE FROM sections
+        WHERE id = $1
+        RETURNING id, document_id, title, content, parent_id, order_index, type, created_at, updated_at
       `,
-      [String(content || ""), id]
+      [id]
     );
 
     return mapSection(rows[0]);
   },
 
-  async snapshotForDocument(documentId) {
-    const sections = await this.findByDocumentId(documentId);
-    const snapshot = {
-      summary: "",
-      notes: "",
-      questions: ""
-    };
-
-    for (const section of sections) {
-      if (SECTION_TYPES.includes(section.type)) {
-        snapshot[section.type] = section.content;
-      }
+  async reorder(id, targetOrder) {
+    const section = await this.findById(id);
+    if (!section) {
+      return null;
     }
 
-    return snapshot;
+    const siblingIds = await getSiblingIds(section.documentId, section.parentId);
+    const currentIndex = siblingIds.indexOf(String(id));
+    if (currentIndex === -1) {
+      return section;
+    }
+
+    const boundedTarget = Math.min(
+      Math.max(normalizeOrder(targetOrder), 0),
+      siblingIds.length - 1
+    );
+
+    if (boundedTarget === currentIndex) {
+      return section;
+    }
+
+    siblingIds.splice(currentIndex, 1);
+    siblingIds.splice(boundedTarget, 0, String(id));
+
+    for (let index = 0; index < siblingIds.length; index += 1) {
+      await query(
+        `
+          UPDATE sections
+          SET order_index = $1, updated_at = NOW()
+          WHERE id = $2
+        `,
+        [index, siblingIds[index]]
+      );
+    }
+
+    return this.findById(id);
+  },
+
+  async snapshotForDocument(documentId) {
+    const sections = await this.findByDocumentId(documentId);
+
+    return {
+      sections: sections.map((section) => ({
+        id: section.id,
+        title: section.title,
+        content: section.content,
+        parentId: section.parentId,
+        order: section.order
+      }))
+    };
   },
 
   async applySnapshot(documentId, snapshot = {}) {
-    const contentByType = {
-      summary: typeof snapshot.summary === "string" ? snapshot.summary : "",
-      notes: typeof snapshot.notes === "string" ? snapshot.notes : "",
-      questions: typeof snapshot.questions === "string" ? snapshot.questions : ""
-    };
+    const snapshotSections = Array.isArray(snapshot.sections)
+      ? snapshot.sections
+      : [
+          { title: "Summary", content: String(snapshot.summary || ""), parentId: null, order: 0 },
+          { title: "Notes", content: String(snapshot.notes || ""), parentId: null, order: 1 },
+          { title: "Questions", content: String(snapshot.questions || ""), parentId: null, order: 2 }
+        ];
 
-    const updatedSections = [];
+    await query("DELETE FROM sections WHERE document_id = $1", [documentId]);
 
-    for (const type of SECTION_TYPES) {
-      const { rows } = await query(
-        `
-          INSERT INTO sections(document_id, type, content)
-          VALUES ($1, $2, $3)
-          ON CONFLICT (document_id, type)
-          DO UPDATE SET content = EXCLUDED.content, updated_at = NOW()
-          RETURNING id, document_id, type, content, created_at, updated_at
-        `,
-        [documentId, type, contentByType[type]]
-      );
+    const roots = snapshotSections
+      .filter((item) => !item.parentId)
+      .sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
 
-      updatedSections.push(mapSection(rows[0]));
+    const idMap = new Map();
+
+    for (const root of roots) {
+      const created = await this.create({
+        documentId,
+        title: root.title || "Section",
+        parentId: null,
+        content: root.content || ""
+      });
+
+      await this.updateById(created.id, { order: Number(root.order || 0) });
+      if (root.id !== undefined && root.id !== null) {
+        idMap.set(String(root.id), created.id);
+      }
     }
 
-    return updatedSections;
+    const children = snapshotSections
+      .filter((item) => item.parentId)
+      .sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
+
+    for (const child of children) {
+      const mappedParentId = idMap.get(String(child.parentId));
+      if (!mappedParentId) {
+        continue;
+      }
+
+      const created = await this.create({
+        documentId,
+        title: child.title || "Subsection",
+        parentId: mappedParentId,
+        content: child.content || ""
+      });
+
+      await this.updateById(created.id, { order: Number(child.order || 0) });
+      if (child.id !== undefined && child.id !== null) {
+        idMap.set(String(child.id), created.id);
+      }
+    }
+
+    return this.findByDocumentId(documentId);
   }
 };
 
