@@ -22,7 +22,7 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body className={`${headingFont.variable} ${monoFont.variable}`}>
-        <ThemeToggle />
+        <ThemeToggle showControl={false} />
         {children}
       </body>
     </html>

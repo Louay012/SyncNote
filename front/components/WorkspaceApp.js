@@ -119,7 +119,7 @@ function withDocumentCursorColors(cursorsByUserId) {
   );
 }
 
-function EditorContent({ token, activeId, onSessionLogout }) {
+function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
   const router = useRouter();
   const apolloClient = useApolloClient();
 
@@ -1104,6 +1104,7 @@ function EditorContent({ token, activeId, onSessionLogout }) {
       subtitle={`Signed in as ${meData?.me?.name || "User"}${
         meData?.me?.email ? ` (${meData.me.email})` : ""
       }`}
+      variant={shellVariant}
       onLogout={handleLogout}
     >
       {pageError ? (
@@ -1227,7 +1228,10 @@ function EditorContent({ token, activeId, onSessionLogout }) {
   );
 }
 
-export default function WorkspaceApp({ initialDocumentId = null }) {
+export default function WorkspaceApp({
+  initialDocumentId = null,
+  shellVariant = "default"
+}) {
   const router = useRouter();
   const [token, setToken] = useState("");
   const [hydrated, setHydrated] = useState(false);
@@ -1289,7 +1293,12 @@ export default function WorkspaceApp({ initialDocumentId = null }) {
 
   return (
     <ApolloProvider client={client}>
-      <EditorContent token={token} activeId={activeId} onSessionLogout={() => setToken("")} />
+      <EditorContent
+        token={token}
+        activeId={activeId}
+        onSessionLogout={() => setToken("")}
+        shellVariant={shellVariant}
+      />
     </ApolloProvider>
   );
 }

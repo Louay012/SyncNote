@@ -3,7 +3,6 @@
 import {
   ApolloProvider,
   useApolloClient,
-  useMutation,
   useQuery
 } from "@apollo/client";
 import { useEffect, useMemo, useState } from "react";
@@ -13,7 +12,6 @@ import DocumentList from "@/components/DocumentList";
 import { createApolloClient } from "@/lib/apollo";
 import { clearStoredToken, getStoredToken, setStoredToken } from "@/lib/authToken";
 import {
-  CREATE_DOCUMENT,
   GET_ME,
   GET_MY_DOCUMENTS,
   GET_SHARED_DOCUMENTS,
@@ -32,9 +30,6 @@ function DashboardContent({ token, onLogout }) {
   const [sortDirection, setSortDirection] = useState("DESC");
   const [searchInput, setSearchInput] = useState("");
   const [searchKeyword, setSearchKeyword] = useState("");
-  const [createTitle, setCreateTitle] = useState("");
-  const [formError, setFormError] = useState("");
-  const [notice, setNotice] = useState("");
 
   const listingVariables = {
     limit: PAGE_SIZE,
@@ -56,13 +51,9 @@ function DashboardContent({ token, onLogout }) {
   }, [searchInput]);
 
   useEffect(() => {
-    if (!notice) {
-      return undefined;
-    }
-
-    const timer = window.setTimeout(() => setNotice(""), 3200);
-    return () => window.clearTimeout(timer);
-  }, [notice]);
+    // Reset pagination when sort order changes.
+    setListOffset(0);
+  }, [sortBy, sortDirection]);
 
   const { data: meData } = useQuery(GET_ME, {
     skip: !token,
@@ -105,8 +96,6 @@ function DashboardContent({ token, onLogout }) {
     fetchPolicy: "cache-and-network"
   });
 
-  const [createDocument, { loading: creatingDocument }] = useMutation(CREATE_DOCUMENT);
-
   const myDocs = searching
     ? searchDocsData?.searchDocuments?.items || []
     : myDocsData?.myDocuments?.items || [];
@@ -127,34 +116,6 @@ function DashboardContent({ token, onLogout }) {
     await Promise.all([refetchMine(), refetchShared()]);
   }
 
-  async function handleCreateDocument(event) {
-    event.preventDefault();
-
-    const title = createTitle.trim();
-    if (!title) {
-      setFormError("Document title is required.");
-      return;
-    }
-
-    setFormError("");
-    try {
-      const result = await createDocument({
-        variables: { title, content: "" }
-      });
-
-      const id = result.data?.createDocument?.id;
-      setCreateTitle("");
-      setNotice("Document created");
-      await refreshCollections();
-
-      if (id) {
-        router.push(`/doc/${id}`);
-      }
-    } catch (error) {
-      setFormError(toFriendlyError(error));
-    }
-  }
-
   function handleSelectDocument(documentId) {
     router.push(`/doc/${documentId}`);
   }
@@ -168,24 +129,11 @@ function DashboardContent({ token, onLogout }) {
 
   return (
     <AppShell
-      title="Dashboard"
+      title="All Documents"
       subtitle={`Signed in as ${meData?.me?.name || "User"}`}
       onLogout={handleLogout}
     >
       <section className="panel dashboard-toolbar">
-        <form className="create-doc-form" onSubmit={handleCreateDocument}>
-          <input
-            value={createTitle}
-            onChange={(event) => setCreateTitle(event.target.value)}
-            placeholder="New document title"
-            disabled={creatingDocument}
-          />
-          <button type="submit" disabled={creatingDocument}>
-            {creatingDocument ? "Creating..." : "Create"}
-          </button>
-        </form>
-        {formError ? <p className="field-error">{formError}</p> : null}
-
         <div className="dashboard-filters">
           <input
             value={searchInput}
@@ -205,13 +153,8 @@ function DashboardContent({ token, onLogout }) {
             <option value="ASC">Ascending</option>
           </select>
         </div>
+        <p className="list-meta">Create new documents from the sidebar.</p>
       </section>
-
-      {notice ? (
-        <section className="panel notice-panel">
-          <p>{notice}</p>
-        </section>
-      ) : null}
 
       {listingError ? (
         <section className="panel notice-panel error-notice">
@@ -240,6 +183,12 @@ function DashboardContent({ token, onLogout }) {
         canPrev={listOffset > 0}
         canNext={listOffset + PAGE_SIZE < activeTotal}
       />
+
+      {!loadingMine && !loadingShared && !loadingSearch && !myDocs.length && !sharedDocs.length ? (
+        <section className="panel notice-panel">
+          <p>No documents yet. Use Create Document in the sidebar to get started.</p>
+        </section>
+      ) : null}
 
       {loadingMine || loadingShared || loadingSearch ? (
         <p className="list-meta">Loading documents...</p>

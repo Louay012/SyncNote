@@ -221,6 +221,16 @@ export const CREATE_DOCUMENT = gql`
   }
 `;
 
+export const UPDATE_PROFILE = gql`
+  mutation UpdateProfile($name: String) {
+    updateProfile(name: $name) {
+      id
+      name
+      email
+    }
+  }
+`;
+
 export const UPDATE_DOCUMENT = gql`
   mutation UpdateDocument($id: ID!, $title: String, $content: String) {
     updateDocument(id: $id, title: $title, content: $content) {

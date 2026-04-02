@@ -27,7 +27,7 @@ function getPreferredTheme() {
     : "light";
 }
 
-export default function ThemeToggle() {
+export default function ThemeToggle({ showControl = true, inline = false }) {
   const [theme, setTheme] = useState("light");
   const [ready, setReady] = useState(false);
 
@@ -45,16 +45,20 @@ export default function ThemeToggle() {
     window.localStorage.setItem(THEME_KEY, nextTheme);
   }
 
+  if (!showControl) {
+    return null;
+  }
+
   return (
     <button
       type="button"
-      className="theme-toggle"
+      className={inline ? "theme-toggle inline" : "theme-toggle"}
       onClick={toggleTheme}
       aria-label="Toggle dark mode"
       title="Toggle dark mode"
       disabled={!ready}
     >
-      {theme === "dark" ? "Light" : "Dark"}
+      {theme === "dark" ? "Use light" : "Use dark"}
     </button>
   );
 }
