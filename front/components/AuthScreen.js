@@ -8,6 +8,7 @@ import AuthPanel from "@/components/AuthPanel";
 import { createApolloClient } from "@/lib/apollo";
 import { getStoredToken, setStoredToken } from "@/lib/authToken";
 import { LOGIN, REGISTER } from "@/lib/graphql";
+import { toFriendlyAuthError } from "@/lib/uiErrors";
 
 function AuthScreenContent({
   mode = "login",
@@ -53,7 +54,7 @@ function AuthScreenContent({
         router.replace("/");
       }
     } catch (error) {
-      setNotice(error.message);
+      setNotice(toFriendlyAuthError(error, "login"));
     }
   }
 
@@ -66,7 +67,7 @@ function AuthScreenContent({
         router.replace("/");
       }
     } catch (error) {
-      setNotice(error.message);
+      setNotice(toFriendlyAuthError(error, "register"));
     }
   }
 

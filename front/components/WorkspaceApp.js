@@ -9,8 +9,8 @@ import {
 } from "@apollo/client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import AppShell from "@/components/AppShell";
 import CommentsPane from "@/components/CommentsPane";
-import DocumentList from "@/components/DocumentList";
 import EditorPane from "@/components/EditorPane";
 import SectionsTree from "@/components/SectionsTree";
 import TabsPanel from "@/components/TabsPanel";
@@ -25,22 +25,18 @@ import { createCursorSocket } from "@/lib/cursorSocket";
 import {
   ADD_COMMENT,
   COMMENT_ADDED,
-  CREATE_DOCUMENT,
   CREATE_SECTION,
   DELETE_SECTION,
   GET_DOCUMENT,
   GET_DOCUMENT_PRESENCE,
   GET_ME,
-  GET_MY_DOCUMENTS,
   GET_SECTION_COMMENTS,
   GET_SECTIONS,
-  GET_SHARED_DOCUMENTS,
   GET_VERSIONS,
   LEAVE_DOCUMENT,
   REORDER_SECTION,
   RESTORE_VERSION,
   SAVE_VERSION,
-  SEARCH_DOCUMENTS,
   SECTION_UPDATED,
   SHARE_DOCUMENT,
   UNSHARE_DOCUMENT,
@@ -51,8 +47,8 @@ import {
   USER_PRESENCE_CHANGED,
   USER_TYPING
 } from "@/lib/graphql";
+import { isEmail, toFriendlyError } from "@/lib/uiErrors";
 
-const PAGE_SIZE = 8;
 const DOCUMENT_CURSOR_COLORS = [
   { bg: "#ff6b6b", fg: "#ffffff", border: "#b82525" },
   { bg: "#4dabf7", fg: "#ffffff", border: "#1f6aa8" },
@@ -123,76 +119,27 @@ function withDocumentCursorColors(cursorsByUserId) {
   );
 }
 
-function Workspace() {
-  const router = useRouter();
-  const [token, setToken] = useState("");
-  const [activeId, setActiveId] = useState(null);
-  const [hydrated, setHydrated] = useState(false);
-  const client = useMemo(() => createApolloClient(token), [token]);
-
-  useEffect(() => {
-    const saved = getStoredToken();
-    setToken(saved);
-    setHydrated(true);
-  }, []);
-
-  useEffect(() => {
-    if (!hydrated) {
-      return;
-    }
-
-    if (!token) {
-      router.replace("/login");
-      return;
-    }
-
-    setStoredToken(token);
-  }, [hydrated, token, router]);
-
-  if (!hydrated) {
-    return (
-      <main className="shell">
-        <section className="panel notice-panel">
-          <p>Preparing workspace...</p>
-        </section>
-      </main>
-    );
-  }
-
-  return (
-    <ApolloProvider client={client}>
-      <WorkspaceContent
-        token={token}
-        onLogout={() => setToken("")}
-        activeId={activeId}
-        setActiveId={setActiveId}
-      />
-    </ApolloProvider>
-  );
-}
-
-function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
+function EditorContent({ token, activeId, onSessionLogout }) {
   const router = useRouter();
   const apolloClient = useApolloClient();
 
   const [notice, setNotice] = useState("");
-  const [listOffset, setListOffset] = useState(0);
-  const [sortBy, setSortBy] = useState("UPDATED_AT");
-  const [sortDirection, setSortDirection] = useState("DESC");
-  const [searchInput, setSearchInput] = useState("");
-  const [searchKeyword, setSearchKeyword] = useState("");
+  const [modal, setModal] = useState(null);
+  const [modalError, setModalError] = useState("");
+  const [pageError, setPageError] = useState("");
+
   const [selectedSectionId, setSelectedSectionId] = useState(null);
   const [sectionDraft, setSectionDraft] = useState("");
   const [saveState, setSaveState] = useState("idle");
+
   const [presenceUsers, setPresenceUsers] = useState([]);
   const [typingUsers, setTypingUsers] = useState({});
   const [remoteCursors, setRemoteCursors] = useState({});
   const [socketSelfCursorId, setSocketSelfCursorId] = useState("");
   const [lastSectionActor, setLastSectionActor] = useState("");
+
   const [collabEmail, setCollabEmail] = useState("");
   const [collabPermission, setCollabPermission] = useState("EDIT");
-  const [modal, setModal] = useState(null);
-  const [modalError, setModalError] = useState("");
 
   const saveTimerRef = useRef(null);
   const cursorTimerRef = useRef(null);
@@ -206,16 +153,6 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
   useEffect(() => {
     selectedSectionIdRef.current = selectedSectionId;
   }, [selectedSectionId]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      const nextKeyword = searchInput.trim();
-      setSearchKeyword(nextKeyword);
-      setListOffset(0);
-    }, 250);
-
-    return () => window.clearTimeout(timer);
-  }, [searchInput]);
 
   useEffect(() => {
     if (!notice) {
@@ -263,47 +200,15 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
     return () => window.clearInterval(pruneTimer);
   }, []);
 
-  const listingVariables = {
-    limit: PAGE_SIZE,
-    offset: listOffset,
-    sortBy,
-    sortDirection
-  };
-
-  const searching = searchKeyword.length >= 2;
-
   const { data: meData } = useQuery(GET_ME, {
     skip: !token,
-    fetchPolicy: "cache-and-network"
-  });
-
-  const { data: myDocsData, refetch: refetchMine } = useQuery(GET_MY_DOCUMENTS, {
-    variables: listingVariables,
-    skip: !token || searching,
-    fetchPolicy: "cache-and-network"
-  });
-
-  const { data: sharedDocsData, refetch: refetchShared } = useQuery(
-    GET_SHARED_DOCUMENTS,
-    {
-      variables: listingVariables,
-      skip: !token || searching,
-      fetchPolicy: "cache-and-network"
-    }
-  );
-
-  const { data: searchDocsData, refetch: refetchSearch } = useQuery(SEARCH_DOCUMENTS, {
-    variables: {
-      keyword: searchKeyword,
-      ...listingVariables
-    },
-    skip: !token || !searching,
     fetchPolicy: "cache-and-network"
   });
 
   const {
     data: docData,
     loading: loadingDoc,
+    error: docError,
     refetch: refetchDoc
   } = useQuery(GET_DOCUMENT, {
     variables: { id: activeId },
@@ -359,7 +264,6 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
     fetchPolicy: "cache-and-network"
   });
 
-  const [createDocument] = useMutation(CREATE_DOCUMENT);
   const [updateDocument, { loading: savingTitle }] = useMutation(UPDATE_DOCUMENT);
   const [createSection, { loading: creatingSection }] = useMutation(CREATE_SECTION);
   const [updateSection, { loading: savingSection }] = useMutation(UPDATE_SECTION);
@@ -375,15 +279,7 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
   const [updatePresence] = useMutation(UPDATE_PRESENCE);
   const [leaveDocument] = useMutation(LEAVE_DOCUMENT);
 
-  const myDocs = searching
-    ? searchDocsData?.searchDocuments?.items || []
-    : myDocsData?.myDocuments?.items || [];
-  const sharedDocs = searching ? [] : sharedDocsData?.sharedWithMeDocuments?.items || [];
   const activeDoc = docData?.document || null;
-  const totalMine = myDocsData?.myDocuments?.total || 0;
-  const totalShared = sharedDocsData?.sharedWithMeDocuments?.total || 0;
-  const totalSearch = searchDocsData?.searchDocuments?.total || 0;
-  const activeTotal = searching ? totalSearch : totalMine + totalShared;
   const comments = commentsData?.commentsBySection || [];
   const versions = versionsData?.getVersions || [];
   const coloredRemoteCursors = useMemo(() => {
@@ -391,15 +287,12 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
   }, [remoteCursors]);
 
   useEffect(() => {
-    if (!activeId && myDocs.length > 0) {
-      setActiveId(myDocs[0].id);
-      return;
+    if (docError) {
+      setPageError(toFriendlyError(docError));
+    } else {
+      setPageError("");
     }
-
-    if (!activeId && sharedDocs.length > 0) {
-      setActiveId(sharedDocs[0].id);
-    }
-  }, [myDocs, sharedDocs, activeId, setActiveId]);
+  }, [docError]);
 
   useEffect(() => {
     if (!activeId) {
@@ -450,13 +343,12 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
     }
 
     let mounted = true;
-    const documentId = activeId;
 
     async function sendPresencePulse() {
       try {
         const result = await updatePresence({
           variables: {
-            documentId,
+            documentId: activeId,
             sectionId: selectedSectionIdRef.current
           }
         });
@@ -465,7 +357,7 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
           setPresenceUsers(result.data.updatePresence);
         }
       } catch {
-        // Heartbeat is best-effort and subscription updates still flow.
+        // Presence heartbeat is best effort.
       }
     }
 
@@ -475,7 +367,7 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
     return () => {
       mounted = false;
       window.clearInterval(interval);
-      leaveDocument({ variables: { documentId } }).catch(() => {});
+      leaveDocument({ variables: { documentId: activeId } }).catch(() => {});
     };
   }, [token, activeId, updatePresence, leaveDocument]);
 
@@ -523,13 +415,6 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
       refetchSections();
       refetchDoc();
       refetchVersions();
-
-      if (searching) {
-        refetchSearch();
-      } else {
-        refetchMine();
-        refetchShared();
-      }
     }
   });
 
@@ -591,8 +476,6 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
       socket.emit("cursor:join", { documentId: activeId });
     };
 
-    const onDisconnect = () => {};
-
     const onSelf = (payload) => {
       const cursorId = String(payload?.cursorId || "");
       if (!cursorId) {
@@ -618,9 +501,11 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
         if (!entryCursorId) {
           return;
         }
+
         if (currentCursorId && entryCursorId === currentCursorId) {
           return;
         }
+
         mapped[entryCursorId] = entry;
       });
 
@@ -666,7 +551,6 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
     };
 
     socket.on("connect", onConnect);
-    socket.on("disconnect", onDisconnect);
     socket.on("cursor:self", onSelf);
     socket.on("cursor:snapshot", onSnapshot);
     socket.on("cursor:moved", onMoved);
@@ -676,7 +560,6 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
     return () => {
       socket.emit("cursor:leave", { documentId: activeId });
       socket.off("connect", onConnect);
-      socket.off("disconnect", onDisconnect);
       socket.off("cursor:self", onSelf);
       socket.off("cursor:snapshot", onSnapshot);
       socket.off("cursor:moved", onMoved);
@@ -705,6 +588,24 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
     return `${others[0].user?.name || "Someone"} and ${others.length - 1} more are typing...`;
   }, [typingUsers]);
 
+  const cursorUsersBySection = useMemo(() => {
+    const grouped = {};
+    Object.values(coloredRemoteCursors).forEach((entry) => {
+      if (!entry.sectionId) {
+        return;
+      }
+
+      const key = String(entry.sectionId);
+      if (!grouped[key]) {
+        grouped[key] = [];
+      }
+
+      grouped[key].push(entry);
+    });
+
+    return grouped;
+  }, [coloredRemoteCursors]);
+
   function clearPendingSave() {
     if (saveTimerRef.current) {
       window.clearTimeout(saveTimerRef.current);
@@ -725,11 +626,7 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
   }
 
   function handleLogout() {
-    onLogout();
-    setActiveId(null);
-    setSearchInput("");
-    setSearchKeyword("");
-    setListOffset(0);
+    onSessionLogout();
     setSelectedSectionId(null);
     setSectionDraft("");
     setSaveState("idle");
@@ -747,50 +644,11 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
     cursorSocketRef.current = null;
     clearStoredToken();
     apolloClient.clearStore();
-    router.replace("/login");
+    router.replace("/auth");
   }
 
-  function refreshDocumentCollections() {
-    if (searching) {
-      return refetchSearch();
-    }
-
-    return Promise.all([refetchMine(), refetchShared()]);
-  }
-
-  async function handleCreate() {
-    setModalError("");
-    setModal({ type: "create-document", title: "" });
-  }
-
-  async function submitCreateDocument() {
-    const title = String(modal?.title || "").trim();
-    if (!title) {
-      setModalError("Document title is required");
-      return;
-    }
-
-    setModalError("");
-    try {
-      const result = await createDocument({
-        variables: { title, content: "" }
-      });
-
-      const id = result.data?.createDocument?.id;
-      await refreshDocumentCollections();
-
-      if (id) {
-        setActiveId(id);
-        setSelectedSectionId(null);
-        setSectionDraft("");
-        setLastSectionActor("");
-      }
-
-      closeModal();
-      setNotice("Document created");
-    } catch (error) {
-      setModalError(error.message);
-    }
+  async function refreshEditorData() {
+    await Promise.all([refetchDoc(), refetchSections(), refetchVersions()]);
   }
 
   async function handleSaveTitle(nextTitle) {
@@ -806,10 +664,10 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
         }
       });
 
-      await Promise.all([refetchDoc(), refreshDocumentCollections()]);
-      setNotice("Document title saved");
+      await refreshEditorData();
+      setNotice("Changes saved");
     } catch (error) {
-      setNotice(error.message);
+      setNotice(toFriendlyError(error));
     }
   }
 
@@ -835,10 +693,10 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
       setLastSectionActor(
         result.data?.updateSection?.updatedBy?.name || meData?.me?.name || ""
       );
-      await Promise.all([refetchSections(), refetchDoc(), refreshDocumentCollections()]);
-      setNotice("Section title saved");
+      await refreshEditorData();
+      setNotice("Changes saved");
     } catch (error) {
-      setNotice(error.message);
+      setNotice(toFriendlyError(error));
     }
   }
 
@@ -882,11 +740,10 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
         localEditRef.current = false;
         setSaveState("saved");
 
-        await Promise.all([refetchSections(), refetchDoc()]);
-        await refreshDocumentCollections();
+        await refreshEditorData();
       } catch (error) {
         setSaveState("error");
-        setNotice(error.message);
+        setNotice(toFriendlyError(error));
       } finally {
         updateTypingStatus({
           variables: {
@@ -961,7 +818,7 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
       });
 
       const created = result.data?.createSection;
-      await Promise.all([refetchSections(), refetchDoc(), refreshDocumentCollections()]);
+      await refreshEditorData();
 
       if (created?.id) {
         setSelectedSectionId(created.id);
@@ -970,7 +827,7 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
       closeModal();
       setNotice((modal?.parentId ?? null) ? "Subsection created" : "Section created");
     } catch (error) {
-      setModalError(error.message);
+      setModalError(toFriendlyError(error));
     }
   }
 
@@ -1003,19 +860,11 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
       }
 
       localEditRef.current = false;
-      await Promise.all([
-        refetchSections(),
-        refetchDoc(),
-        refetchVersions(),
-        refreshDocumentCollections()
-      ]);
-      if (activeSection?.id === target.id) {
-        refetchComments().catch(() => {});
-      }
+      await Promise.all([refetchSections(), refetchDoc(), refetchVersions(), refetchComments()]);
       closeModal();
       setNotice("Section removed");
     } catch (error) {
-      setModalError(error.message);
+      setModalError(toFriendlyError(error));
     }
   }
 
@@ -1048,9 +897,9 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
       });
 
       await refetchSections();
-      setNotice("Section order updated");
+      setNotice("Changes saved");
     } catch (error) {
-      setNotice(error.message);
+      setNotice(toFriendlyError(error));
     }
   }
 
@@ -1069,7 +918,7 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
 
       await refetchComments();
     } catch (error) {
-      setNotice(error.message);
+      setNotice(toFriendlyError(error));
     }
   }
 
@@ -1081,9 +930,9 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
     try {
       await saveVersion({ variables: { documentId: activeId } });
       await refetchVersions();
-      setNotice("Version snapshot saved");
+      setNotice("Changes saved");
     } catch (error) {
-      setNotice(error.message);
+      setNotice(toFriendlyError(error));
     }
   }
 
@@ -1097,27 +946,23 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
       await restoreVersion({ variables: { versionId } });
       localEditRef.current = false;
 
-      await Promise.all([
-        refetchDoc(),
-        refetchSections(),
-        refetchComments(),
-        refetchVersions(),
-        refreshDocumentCollections()
-      ]);
-
+      await Promise.all([refetchDoc(), refetchSections(), refetchComments(), refetchVersions()]);
       setNotice("Version restored");
     } catch (error) {
-      setNotice(error.message);
+      setNotice(toFriendlyError(error));
     }
   }
 
   async function handleShare(event) {
     event.preventDefault();
 
-    const documentId = modal?.type === "collaborators" ? modal.documentId : activeId;
-
-    if (!documentId || !collabEmail.trim()) {
+    if (!activeId || !collabEmail.trim()) {
       setModalError("Collaborator email is required");
+      return;
+    }
+
+    if (!isEmail(collabEmail)) {
+      setModalError("Please enter a valid invite email.");
       return;
     }
 
@@ -1125,67 +970,38 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
     try {
       await shareDocument({
         variables: {
-          documentId,
+          documentId: activeId,
           userEmail: collabEmail.trim(),
           permission: collabPermission
         }
       });
 
-      await Promise.all([refetchDoc(), refetchShared(), refetchMine()]);
+      await refetchDoc();
       setNotice(`Shared with ${collabEmail.trim()} as ${collabPermission}`);
       setCollabEmail("");
     } catch (error) {
-      if (modal?.type === "collaborators") {
-        setModalError(error.message);
-        return;
-      }
-      setNotice(error.message);
+      setModalError(toFriendlyError(error));
     }
   }
 
-  async function handleUnshare(userEmail, documentId = activeId) {
-    if (!documentId) {
+  async function handleUnshare(userEmail) {
+    if (!activeId) {
       return;
     }
 
     try {
       await unshareDocument({
         variables: {
-          documentId,
+          documentId: activeId,
           userEmail
         }
       });
 
-      await Promise.all([refetchDoc(), refetchShared(), refetchMine()]);
+      await refetchDoc();
       setNotice(`Removed access for ${userEmail}`);
     } catch (error) {
-      setNotice(error.message);
+      setNotice(toFriendlyError(error));
     }
-  }
-
-  function handlePrevPage() {
-    setListOffset((current) => Math.max(current - PAGE_SIZE, 0));
-  }
-
-  function handleNextPage() {
-    setListOffset((current) => current + PAGE_SIZE);
-  }
-
-  function handleSelectDocument(documentId) {
-    clearPendingSave();
-    clearPendingCursorUpdate();
-    setActiveId(documentId);
-    setSelectedSectionId(null);
-    setSectionDraft("");
-    setSaveState("idle");
-    setPresenceUsers([]);
-    setTypingUsers({});
-    setRemoteCursors({});
-    setSocketSelfCursorId("");
-    socketSelfCursorIdRef.current = "";
-    setLastSectionActor("");
-    lastCursorOffsetRef.current = null;
-    localEditRef.current = false;
   }
 
   function handleSelectSection(sectionId) {
@@ -1195,32 +1011,6 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
     setSaveState("idle");
     lastCursorOffsetRef.current = null;
     localEditRef.current = false;
-  }
-
-  const cursorUsersBySection = useMemo(() => {
-    const grouped = {};
-    Object.values(coloredRemoteCursors).forEach((entry) => {
-      if (!entry.sectionId) {
-        return;
-      }
-
-      const key = String(entry.sectionId);
-      if (!grouped[key]) {
-        grouped[key] = [];
-      }
-
-      grouped[key].push(entry);
-    });
-
-    return grouped;
-  }, [coloredRemoteCursors]);
-
-  function handleOpenCollaborators(documentId) {
-    setActiveId(documentId);
-    setCollabEmail("");
-    setCollabPermission("EDIT");
-    setModalError("");
-    setModal({ type: "collaborators", documentId });
   }
 
   const tabs = [
@@ -1251,6 +1041,57 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
           disabled={!activeDoc}
         />
       )
+    },
+    {
+      id: "collaborators",
+      label: "Collaborators",
+      badge: activeDoc?.collaborators?.length || 0,
+      content: (
+        <section className="collaborators-tab">
+          <h3>Collaborators</h3>
+          {modalError ? <p className="field-error">{modalError}</p> : null}
+          <form className="share-form" onSubmit={handleShare}>
+            <input
+              value={collabEmail}
+              onChange={(event) => setCollabEmail(event.target.value)}
+              placeholder="Collaborator email"
+              disabled={!activeDoc || sharingDocument || unsharingDocument}
+            />
+            <select
+              value={collabPermission}
+              onChange={(event) => setCollabPermission(event.target.value)}
+              disabled={!activeDoc || sharingDocument || unsharingDocument}
+            >
+              <option value="EDIT">EDIT</option>
+              <option value="VIEW">VIEW</option>
+            </select>
+            <button type="submit" disabled={!activeDoc || sharingDocument || unsharingDocument}>
+              {sharingDocument ? "Sharing..." : "Share"}
+            </button>
+          </form>
+
+          <div className="collab-list">
+            {(activeDoc?.collaborators || []).map((collaborator) => (
+              <div key={collaborator.id} className="collab-item">
+                <div>
+                  <strong>{collaborator.name}</strong>
+                  <small>{collaborator.email}</small>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleUnshare(collaborator.email)}
+                  disabled={sharingDocument || unsharingDocument}
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+            {(activeDoc?.collaborators || []).length === 0 ? (
+              <p className="empty">No collaborators yet.</p>
+            ) : null}
+          </div>
+        </section>
+      )
     }
   ];
 
@@ -1258,136 +1099,87 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
     !activeDoc || loadingSections || creatingSection || deletingSection || reorderingSection;
 
   return (
-    <main className="shell">
-      <header className="workspace-topbar">
-        <div className="workspace-brand">
-          <p className="badge">SYNCNOTE</p>
-          <h1>Workspace</h1>
-        </div>
-        <div className="hero-meta">
-          <p>
-            Signed in as <strong>{meData?.me?.name || "User"}</strong> ({meData?.me?.email || "..."})
-          </p>
-          <button type="button" onClick={handleLogout}>
-            Logout
+    <AppShell
+      title="Editor"
+      subtitle={`Signed in as ${meData?.me?.name || "User"}${
+        meData?.me?.email ? ` (${meData.me.email})` : ""
+      }`}
+      onLogout={handleLogout}
+    >
+      {pageError ? (
+        <section className="panel notice-panel error-notice">
+          <p>{pageError}</p>
+          <button type="button" onClick={() => refetchDoc()}>
+            Retry
           </button>
-        </div>
-      </header>
-
-      <section className="workspace-frame">
-        <aside className="workspace-side">
-          <section className="panel filters-panel">
-            <input
-              value={searchInput}
-              onChange={(event) => setSearchInput(event.target.value)}
-              placeholder="Search title/sections (min 2 chars)"
-            />
-            <select value={sortBy} onChange={(event) => setSortBy(event.target.value)}>
-              <option value="UPDATED_AT">Sort by updated</option>
-              <option value="CREATED_AT">Sort by created</option>
-              <option value="TITLE">Sort by title</option>
-            </select>
-            <select
-              value={sortDirection}
-              onChange={(event) => setSortDirection(event.target.value)}
-            >
-              <option value="DESC">Descending</option>
-              <option value="ASC">Ascending</option>
-            </select>
-          </section>
-
-          <DocumentList
-            myDocs={myDocs}
-            sharedDocs={sharedDocs}
-            totalMine={totalMine}
-            totalShared={totalShared}
-            showingSearch={searching}
-            totalSearch={totalSearch}
-            activeId={activeId}
-            onSelect={handleSelectDocument}
-            onOpenCollaborators={handleOpenCollaborators}
-            onCreate={handleCreate}
-            onPrevPage={handlePrevPage}
-            onNextPage={handleNextPage}
-            canPrev={listOffset > 0}
-            canNext={listOffset + PAGE_SIZE < activeTotal}
-          />
-
-          <section className="panel sections-panel">
-            <SectionsTree
-              sections={sections}
-              selectedSectionId={selectedSectionId}
-              cursorUsersBySection={cursorUsersBySection}
-              onSelect={handleSelectSection}
-              onAddRoot={() => handleCreateSection(null)}
-              onAddChild={(parentId) => handleCreateSection(parentId)}
-              onDelete={handleDeleteSection}
-              onMove={handleMoveSection}
-              disabled={treeDisabled}
-              loading={Boolean(activeDoc) && loadingSections}
-            />
-          </section>
-        </aside>
-
-        <section className="workspace-main">
-          {notice ? (
-            <section className="panel notice-panel">
-              <p>{notice}</p>
-            </section>
-          ) : null}
-
-          <EditorPane
-            document={activeDoc}
-            section={activeSection}
-            sectionContent={sectionDraft}
-            onSectionChange={handleSectionInput}
-            saveState={saveState}
-            saving={savingTitle || loadingDoc || loadingSections}
-            savingSection={savingSection}
-            onSaveTitle={handleSaveTitle}
-            onSaveSectionTitle={handleSaveSectionTitle}
-            activeUsers={presenceUsers}
-            currentUserId={meData?.me?.id || null}
-            currentCursorId={socketSelfCursorId || null}
-            cursorUsers={Object.values(coloredRemoteCursors)}
-            onCursorActivity={handleCursorActivity}
-            typingNotice={typingNotice}
-            updatedByName={activeSection?.updatedBy?.name || lastSectionActor}
-          />
         </section>
+      ) : null}
 
-        <aside className="workspace-right">
-          <TabsPanel tabs={tabs} defaultTabId="comments" />
-        </aside>
-      </section>
+      {notice ? (
+        <section className="panel notice-panel">
+          <p>{notice}</p>
+        </section>
+      ) : null}
+
+      {!loadingDoc && !activeDoc ? (
+        <section className="panel notice-panel error-notice">
+          <p>Document not found or inaccessible.</p>
+          <button type="button" onClick={() => router.push("/")}>
+            Back to dashboard
+          </button>
+        </section>
+      ) : null}
+
+      {activeDoc ? (
+        <section className="workspace-frame editor-only-frame">
+          <aside className="workspace-side">
+            <section className="panel sections-panel">
+              <SectionsTree
+                sections={sections}
+                selectedSectionId={selectedSectionId}
+                cursorUsersBySection={cursorUsersBySection}
+                onSelect={handleSelectSection}
+                onAddRoot={() => handleCreateSection(null)}
+                onAddChild={(parentId) => handleCreateSection(parentId)}
+                onDelete={handleDeleteSection}
+                onMove={handleMoveSection}
+                disabled={treeDisabled}
+                loading={Boolean(activeDoc) && loadingSections}
+              />
+            </section>
+          </aside>
+
+          <section className="workspace-main">
+            <EditorPane
+              document={activeDoc}
+              section={activeSection}
+              sectionContent={sectionDraft}
+              onSectionChange={handleSectionInput}
+              saveState={saveState}
+              saving={savingTitle || loadingDoc || loadingSections}
+              savingSection={savingSection}
+              onSaveTitle={handleSaveTitle}
+              onSaveSectionTitle={handleSaveSectionTitle}
+              activeUsers={presenceUsers}
+              currentUserId={meData?.me?.id || null}
+              currentCursorId={socketSelfCursorId || null}
+              cursorUsers={Object.values(coloredRemoteCursors)}
+              onCursorActivity={handleCursorActivity}
+              typingNotice={typingNotice}
+              updatedByName={activeSection?.updatedBy?.name || lastSectionActor}
+            />
+          </section>
+
+          <aside className="workspace-right">
+            <TabsPanel tabs={tabs} defaultTabId="comments" />
+          </aside>
+        </section>
+      ) : null}
 
       {modal ? (
         <section className="modal-backdrop" role="presentation">
           <article className="panel modal-card" role="dialog" aria-modal="true">
             {modalError ? <p className="modal-error">{modalError}</p> : null}
-
-            {modal.type === "create-document" ? (
-              <>
-                <h3>Create Document</h3>
-                <p className="list-meta">Give your new document a clear name.</p>
-                <input
-                  autoFocus
-                  value={modal.title}
-                  onChange={(event) =>
-                    setModal((current) => ({ ...current, title: event.target.value }))
-                  }
-                  placeholder="Document title"
-                />
-                <div className="modal-actions">
-                  <button type="button" onClick={closeModal}>
-                    Cancel
-                  </button>
-                  <button type="button" onClick={submitCreateDocument}>
-                    Create
-                  </button>
-                </div>
-              </>
-            ) : null}
 
             {modal.type === "create-section" ? (
               <>
@@ -1428,75 +1220,76 @@ function WorkspaceContent({ token, onLogout, activeId, setActiveId }) {
                 </div>
               </>
             ) : null}
-
-            {modal.type === "collaborators" ? (
-              <>
-                <h3>Manage Collaborators</h3>
-                <p className="list-meta">
-                  {activeDoc?.id === modal.documentId
-                    ? `Document: ${activeDoc.title}`
-                    : "Loading document details..."}
-                </p>
-                <form className="share-form" onSubmit={handleShare}>
-                  <input
-                    value={collabEmail}
-                    onChange={(event) => setCollabEmail(event.target.value)}
-                    placeholder="Collaborator email"
-                    disabled={!activeDoc || sharingDocument || unsharingDocument}
-                  />
-                  <select
-                    value={collabPermission}
-                    onChange={(event) => setCollabPermission(event.target.value)}
-                    disabled={!activeDoc || sharingDocument || unsharingDocument}
-                  >
-                    <option value="EDIT">EDIT</option>
-                    <option value="VIEW">VIEW</option>
-                  </select>
-                  <button
-                    type="submit"
-                    disabled={!activeDoc || sharingDocument || unsharingDocument}
-                  >
-                    {sharingDocument ? "Sharing..." : "Share"}
-                  </button>
-                </form>
-
-                <div className="collab-list">
-                  {(activeDoc?.id === modal.documentId ? activeDoc?.collaborators : []).map(
-                    (collaborator) => (
-                      <div key={collaborator.id} className="collab-item">
-                        <div>
-                          <strong>{collaborator.name}</strong>
-                          <small>{collaborator.email}</small>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => handleUnshare(collaborator.email, modal.documentId)}
-                          disabled={sharingDocument || unsharingDocument}
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    )
-                  )}
-                  {((activeDoc?.id === modal.documentId
-                    ? activeDoc?.collaborators?.length
-                    : 0) || 0) === 0 ? (
-                    <p className="empty">No collaborators yet.</p>
-                  ) : null}
-                </div>
-
-                <div className="modal-actions">
-                  <button type="button" onClick={closeModal}>
-                    Close
-                  </button>
-                </div>
-              </>
-            ) : null}
           </article>
         </section>
       ) : null}
-    </main>
+    </AppShell>
   );
 }
 
-export default Workspace;
+export default function WorkspaceApp({ initialDocumentId = null }) {
+  const router = useRouter();
+  const [token, setToken] = useState("");
+  const [hydrated, setHydrated] = useState(false);
+  const [activeId, setActiveId] = useState(
+    initialDocumentId !== null && initialDocumentId !== undefined
+      ? String(initialDocumentId)
+      : null
+  );
+
+  const client = useMemo(() => createApolloClient(token), [token]);
+
+  useEffect(() => {
+    const saved = getStoredToken();
+    setToken(saved);
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (initialDocumentId !== null && initialDocumentId !== undefined) {
+      setActiveId(String(initialDocumentId));
+    }
+  }, [initialDocumentId]);
+
+  useEffect(() => {
+    if (!hydrated) {
+      return;
+    }
+
+    if (!token) {
+      router.replace("/auth");
+      return;
+    }
+
+    setStoredToken(token);
+  }, [hydrated, token, router]);
+
+  if (!hydrated) {
+    return (
+      <main className="auth-shell">
+        <section className="panel notice-panel">
+          <p>Preparing editor...</p>
+        </section>
+      </main>
+    );
+  }
+
+  if (!activeId) {
+    return (
+      <main className="auth-shell">
+        <section className="panel notice-panel error-notice">
+          <p>Missing document id.</p>
+          <button type="button" onClick={() => router.push("/")}>
+            Back to dashboard
+          </button>
+        </section>
+      </main>
+    );
+  }
+
+  return (
+    <ApolloProvider client={client}>
+      <EditorContent token={token} activeId={activeId} onSessionLogout={() => setToken("")} />
+    </ApolloProvider>
+  );
+}

@@ -9,19 +9,29 @@ function isAuthenticated(request) {
 export function middleware(request) {
   const { pathname } = request.nextUrl;
   const authenticated = isAuthenticated(request);
-  const publicAuthRoutes = ["/login", "/signup"];
+  const publicAuthRoutes = ["/auth", "/login", "/signup"];
+  const protectedRoutes = ["/", "/profile", "/settings"];
+  const protectedPrefixRoutes = ["/doc/"];
+
+  if (pathname === "/login" || pathname === "/signup") {
+    return NextResponse.redirect(new URL("/auth", request.url));
+  }
 
   if (publicAuthRoutes.includes(pathname) && authenticated) {
     return NextResponse.redirect(new URL("/", request.url));
   }
 
-  if (pathname === "/" && !authenticated) {
-    return NextResponse.redirect(new URL("/login", request.url));
+  const requiresAuth =
+    protectedRoutes.includes(pathname) ||
+    protectedPrefixRoutes.some((prefix) => pathname.startsWith(prefix));
+
+  if (requiresAuth && !authenticated) {
+    return NextResponse.redirect(new URL("/auth", request.url));
   }
 
   return NextResponse.next();
 }
 
 export const config = {
-  matcher: ["/", "/login", "/signup"]
+  matcher: ["/", "/auth", "/login", "/signup", "/doc/:path*", "/profile", "/settings"]
 };

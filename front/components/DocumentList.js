@@ -8,7 +8,14 @@ function formatTime(dateString) {
   })}`;
 }
 
-function Group({ title, docs, activeId, onSelect, onOpenCollaborators }) {
+function Group({
+  title,
+  docs,
+  activeId,
+  onSelect,
+  onOpenCollaborators,
+  showShareActions
+}) {
   return (
     <div className="doc-group">
       <h3>
@@ -30,15 +37,17 @@ function Group({ title, docs, activeId, onSelect, onOpenCollaborators }) {
             <span>{formatTime(doc.updatedAt)}</span>
             <small>Owner: {doc.owner.name}</small>
           </button>
-          <button
-            type="button"
-            className="doc-collab-btn"
-            onClick={() => onOpenCollaborators(doc.id)}
-            aria-label={`Manage collaborators for ${doc.title}`}
-            title="Manage collaborators"
-          >
-            Share
-          </button>
+          {showShareActions ? (
+            <button
+              type="button"
+              className="doc-collab-btn"
+              onClick={() => onOpenCollaborators(doc.id)}
+              aria-label={`Manage collaborators for ${doc.title}`}
+              title="Manage collaborators"
+            >
+              Share
+            </button>
+          ) : null}
         </div>
       ))}
     </div>
@@ -55,6 +64,8 @@ export default function DocumentList({
   activeId,
   onSelect,
   onOpenCollaborators,
+  showShareActions = true,
+  showCreateButton = true,
   onCreate,
   onPrevPage,
   onNextPage,
@@ -65,9 +76,11 @@ export default function DocumentList({
     <aside className="panel list-panel">
       <div className="list-header">
         <h2>Documents</h2>
-        <button type="button" onClick={onCreate}>
-          New
-        </button>
+        {showCreateButton ? (
+          <button type="button" onClick={onCreate}>
+            New
+          </button>
+        ) : null}
       </div>
       {showingSearch ? (
         <p className="list-meta">Search results: {totalSearch}</p>
@@ -80,6 +93,7 @@ export default function DocumentList({
         activeId={activeId}
         onSelect={onSelect}
         onOpenCollaborators={onOpenCollaborators}
+        showShareActions={showShareActions}
       />
       <Group
         title="Shared With Me"
@@ -87,6 +101,7 @@ export default function DocumentList({
         activeId={activeId}
         onSelect={onSelect}
         onOpenCollaborators={onOpenCollaborators}
+        showShareActions={showShareActions}
       />
       <div className="list-pagination">
         <button type="button" onClick={onPrevPage} disabled={!canPrev}>

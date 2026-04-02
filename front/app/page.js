@@ -1,5 +1,5 @@
-import WorkspaceApp from "@/components/WorkspaceApp";
+import DashboardPage from "@/components/DashboardPage";
 
 export default function Page() {
-  return <WorkspaceApp />;
+  return <DashboardPage />;
 }

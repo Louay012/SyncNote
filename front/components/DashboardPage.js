@@ -1,0 +1,291 @@
+"use client";
+
+import {
+  ApolloProvider,
+  useApolloClient,
+  useMutation,
+  useQuery
+} from "@apollo/client";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import AppShell from "@/components/AppShell";
+import DocumentList from "@/components/DocumentList";
+import { createApolloClient } from "@/lib/apollo";
+import { clearStoredToken, getStoredToken, setStoredToken } from "@/lib/authToken";
+import {
+  CREATE_DOCUMENT,
+  GET_ME,
+  GET_MY_DOCUMENTS,
+  GET_SHARED_DOCUMENTS,
+  SEARCH_DOCUMENTS
+} from "@/lib/graphql";
+import { toFriendlyError } from "@/lib/uiErrors";
+
+const PAGE_SIZE = 8;
+
+function DashboardContent({ token, onLogout }) {
+  const router = useRouter();
+  const apolloClient = useApolloClient();
+
+  const [listOffset, setListOffset] = useState(0);
+  const [sortBy, setSortBy] = useState("UPDATED_AT");
+  const [sortDirection, setSortDirection] = useState("DESC");
+  const [searchInput, setSearchInput] = useState("");
+  const [searchKeyword, setSearchKeyword] = useState("");
+  const [createTitle, setCreateTitle] = useState("");
+  const [formError, setFormError] = useState("");
+  const [notice, setNotice] = useState("");
+
+  const listingVariables = {
+    limit: PAGE_SIZE,
+    offset: listOffset,
+    sortBy,
+    sortDirection
+  };
+
+  const searching = searchKeyword.length >= 2;
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const nextKeyword = searchInput.trim();
+      setSearchKeyword(nextKeyword);
+      setListOffset(0);
+    }, 250);
+
+    return () => window.clearTimeout(timer);
+  }, [searchInput]);
+
+  useEffect(() => {
+    if (!notice) {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => setNotice(""), 3200);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
+  const { data: meData } = useQuery(GET_ME, {
+    skip: !token,
+    fetchPolicy: "cache-and-network"
+  });
+
+  const {
+    data: myDocsData,
+    loading: loadingMine,
+    error: myDocsError,
+    refetch: refetchMine
+  } = useQuery(GET_MY_DOCUMENTS, {
+    variables: listingVariables,
+    skip: !token || searching,
+    fetchPolicy: "cache-and-network"
+  });
+
+  const {
+    data: sharedDocsData,
+    loading: loadingShared,
+    error: sharedDocsError,
+    refetch: refetchShared
+  } = useQuery(GET_SHARED_DOCUMENTS, {
+    variables: listingVariables,
+    skip: !token || searching,
+    fetchPolicy: "cache-and-network"
+  });
+
+  const {
+    data: searchDocsData,
+    loading: loadingSearch,
+    error: searchError,
+    refetch: refetchSearch
+  } = useQuery(SEARCH_DOCUMENTS, {
+    variables: {
+      keyword: searchKeyword,
+      ...listingVariables
+    },
+    skip: !token || !searching,
+    fetchPolicy: "cache-and-network"
+  });
+
+  const [createDocument, { loading: creatingDocument }] = useMutation(CREATE_DOCUMENT);
+
+  const myDocs = searching
+    ? searchDocsData?.searchDocuments?.items || []
+    : myDocsData?.myDocuments?.items || [];
+  const sharedDocs = searching ? [] : sharedDocsData?.sharedWithMeDocuments?.items || [];
+  const totalMine = myDocsData?.myDocuments?.total || 0;
+  const totalShared = sharedDocsData?.sharedWithMeDocuments?.total || 0;
+  const totalSearch = searchDocsData?.searchDocuments?.total || 0;
+  const activeTotal = searching ? totalSearch : totalMine + totalShared;
+
+  const listingError = myDocsError || sharedDocsError || searchError;
+
+  async function refreshCollections() {
+    if (searching) {
+      await refetchSearch();
+      return;
+    }
+
+    await Promise.all([refetchMine(), refetchShared()]);
+  }
+
+  async function handleCreateDocument(event) {
+    event.preventDefault();
+
+    const title = createTitle.trim();
+    if (!title) {
+      setFormError("Document title is required.");
+      return;
+    }
+
+    setFormError("");
+    try {
+      const result = await createDocument({
+        variables: { title, content: "" }
+      });
+
+      const id = result.data?.createDocument?.id;
+      setCreateTitle("");
+      setNotice("Document created");
+      await refreshCollections();
+
+      if (id) {
+        router.push(`/doc/${id}`);
+      }
+    } catch (error) {
+      setFormError(toFriendlyError(error));
+    }
+  }
+
+  function handleSelectDocument(documentId) {
+    router.push(`/doc/${documentId}`);
+  }
+
+  function handleLogout() {
+    clearStoredToken();
+    apolloClient.clearStore();
+    onLogout();
+    router.replace("/auth");
+  }
+
+  return (
+    <AppShell
+      title="Dashboard"
+      subtitle={`Signed in as ${meData?.me?.name || "User"}`}
+      onLogout={handleLogout}
+    >
+      <section className="panel dashboard-toolbar">
+        <form className="create-doc-form" onSubmit={handleCreateDocument}>
+          <input
+            value={createTitle}
+            onChange={(event) => setCreateTitle(event.target.value)}
+            placeholder="New document title"
+            disabled={creatingDocument}
+          />
+          <button type="submit" disabled={creatingDocument}>
+            {creatingDocument ? "Creating..." : "Create"}
+          </button>
+        </form>
+        {formError ? <p className="field-error">{formError}</p> : null}
+
+        <div className="dashboard-filters">
+          <input
+            value={searchInput}
+            onChange={(event) => setSearchInput(event.target.value)}
+            placeholder="Search documents"
+          />
+          <select value={sortBy} onChange={(event) => setSortBy(event.target.value)}>
+            <option value="UPDATED_AT">Sort by updated</option>
+            <option value="CREATED_AT">Sort by created</option>
+            <option value="TITLE">Sort by title</option>
+          </select>
+          <select
+            value={sortDirection}
+            onChange={(event) => setSortDirection(event.target.value)}
+          >
+            <option value="DESC">Descending</option>
+            <option value="ASC">Ascending</option>
+          </select>
+        </div>
+      </section>
+
+      {notice ? (
+        <section className="panel notice-panel">
+          <p>{notice}</p>
+        </section>
+      ) : null}
+
+      {listingError ? (
+        <section className="panel notice-panel error-notice">
+          <p>{toFriendlyError(listingError)}</p>
+          <button type="button" onClick={refreshCollections}>
+            Retry
+          </button>
+        </section>
+      ) : null}
+
+      <DocumentList
+        myDocs={myDocs}
+        sharedDocs={sharedDocs}
+        totalMine={totalMine}
+        totalShared={totalShared}
+        showingSearch={searching}
+        totalSearch={totalSearch}
+        activeId={null}
+        onSelect={handleSelectDocument}
+        onOpenCollaborators={() => {}}
+        showShareActions={false}
+        showCreateButton={false}
+        onCreate={() => {}}
+        onPrevPage={() => setListOffset((current) => Math.max(current - PAGE_SIZE, 0))}
+        onNextPage={() => setListOffset((current) => current + PAGE_SIZE)}
+        canPrev={listOffset > 0}
+        canNext={listOffset + PAGE_SIZE < activeTotal}
+      />
+
+      {loadingMine || loadingShared || loadingSearch ? (
+        <p className="list-meta">Loading documents...</p>
+      ) : null}
+    </AppShell>
+  );
+}
+
+export default function DashboardPage() {
+  const router = useRouter();
+  const [token, setToken] = useState("");
+  const [hydrated, setHydrated] = useState(false);
+  const client = useMemo(() => createApolloClient(token), [token]);
+
+  useEffect(() => {
+    const saved = getStoredToken();
+    setToken(saved);
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) {
+      return;
+    }
+
+    if (!token) {
+      router.replace("/auth");
+      return;
+    }
+
+    setStoredToken(token);
+  }, [hydrated, token, router]);
+
+  if (!hydrated) {
+    return (
+      <main className="auth-shell">
+        <section className="panel notice-panel">
+          <p>Preparing dashboard...</p>
+        </section>
+      </main>
+    );
+  }
+
+  return (
+    <ApolloProvider client={client}>
+      <DashboardContent token={token} onLogout={() => setToken("")} />
+    </ApolloProvider>
+  );
+}

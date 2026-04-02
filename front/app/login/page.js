@@ -1,16 +1,9 @@
-import AuthScreen from "@/components/AuthScreen";
+import { redirect } from "next/navigation";
 
 export const metadata = {
-  title: "Login | SyncNote"
+  title: "Auth | SyncNote"
 };
 
 export default function LoginPage() {
-  return (
-    <AuthScreen
-      mode="login"
-      lockMode={true}
-      switchHref="/signup"
-      switchLabel="Need an account? Create one"
-    />
-  );
+  redirect("/auth");
 }
