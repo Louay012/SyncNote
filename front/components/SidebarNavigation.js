@@ -124,8 +124,8 @@ function DocumentGroup({ title, documents = [], pathname }) {
   );
 }
 
-function isDashboardPath(pathname) {
-  return pathname === "/" || pathname.startsWith("/doc/");
+function isDocumentsPath(pathname) {
+  return pathname === "/documents" || pathname.startsWith("/doc/");
 }
 
 export default function SidebarNavigation({
@@ -212,7 +212,11 @@ export default function SidebarNavigation({
     <>
       <aside className={sidebarClassName}>
         <div className="app-sidebar-top">
-          <Link href="/" className="app-brand" aria-label="Go to all documents">
+          <Link
+            href="/"
+            className={pathname === "/" ? "app-brand active" : "app-brand"}
+            aria-label="Go to dashboard"
+          >
             <span className="app-brand-icon" aria-hidden="true">
               <HomeIcon />
             </span>
@@ -254,8 +258,8 @@ export default function SidebarNavigation({
         <div className="app-sidebar-scroll">
           <nav className="app-nav" aria-label="Main navigation">
             <Link
-              href="/"
-              className={isDashboardPath(pathname) ? "nav-link active" : "nav-link"}
+              href="/documents"
+              className={isDocumentsPath(pathname) ? "nav-link active" : "nav-link"}
               aria-label="All Documents"
               title="All Documents"
             >

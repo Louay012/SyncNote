@@ -122,92 +122,94 @@ export default function ProfilePage() {
 
   return (
     <AppShell title="Profile" subtitle="Manage your account details." onLogout={handleLogout}>
-      {error ? (
-        <section className="panel notice-panel error-notice">
-          <p>{toFriendlyError(error)}</p>
-          <button type="button" onClick={() => refetch()}>
-            Retry
-          </button>
-        </section>
-      ) : null}
-
-      <section className="panel profile-panel">
-        <h2>Account</h2>
-        {loading ? <p>Loading profile...</p> : null}
-        {!loading && !error ? (
-          <div className="profile-grid">
-            <p>
-              <strong>Name:</strong> {data?.me?.name || "Unknown"}
-            </p>
-            <p>
-              <strong>Email:</strong> {data?.me?.email || "Unknown"}
-            </p>
-          </div>
-        ) : null}
-      </section>
-
-      <section className="panel profile-panel profile-forms">
-        <article className="profile-form-card">
-          <h2>Change Name</h2>
-          <form className="profile-form" onSubmit={handleNameSubmit}>
-            <input
-              value={nameInput}
-              onChange={(event) => {
-                setNameInput(event.target.value);
-                setNameError("");
-              }}
-              placeholder="Display name"
-              disabled={updatingName || loading}
-            />
-            {nameError ? <p className="field-error">{nameError}</p> : null}
-            {nameNotice ? <p className="field-success">{nameNotice}</p> : null}
-            <button type="submit" disabled={updatingName || loading}>
-              {updatingName ? "Saving..." : "Save name"}
+      <section className="profile-center">
+        {error ? (
+          <section className="panel notice-panel error-notice">
+            <p>{toFriendlyError(error)}</p>
+            <button type="button" onClick={() => refetch()}>
+              Retry
             </button>
-          </form>
-        </article>
+          </section>
+        ) : null}
 
-        <article className="profile-form-card">
-          <h2>Change Password</h2>
-          <form className="profile-form" onSubmit={handlePasswordSubmit}>
-            <input
-              type="password"
-              value={passwordValues.currentPassword}
-              onChange={(event) => handlePasswordField("currentPassword", event.target.value)}
-              placeholder="Current password"
-              autoComplete="current-password"
-            />
-            {passwordErrors.currentPassword ? (
-              <p className="field-error">{passwordErrors.currentPassword}</p>
-            ) : null}
+        <section className="panel profile-panel">
+          <h2>Account</h2>
+          {loading ? <p>Loading profile...</p> : null}
+          {!loading && !error ? (
+            <div className="profile-grid">
+              <p>
+                <strong>Name:</strong> {data?.me?.name || "Unknown"}
+              </p>
+              <p>
+                <strong>Email:</strong> {data?.me?.email || "Unknown"}
+              </p>
+            </div>
+          ) : null}
+        </section>
 
-            <input
-              type="password"
-              value={passwordValues.newPassword}
-              onChange={(event) => handlePasswordField("newPassword", event.target.value)}
-              placeholder="New password"
-              autoComplete="new-password"
-            />
-            {passwordErrors.newPassword ? (
-              <p className="field-error">{passwordErrors.newPassword}</p>
-            ) : null}
+        <section className="panel profile-panel profile-forms">
+          <article className="profile-form-card">
+            <h2>Change Name</h2>
+            <form className="profile-form" onSubmit={handleNameSubmit}>
+              <input
+                value={nameInput}
+                onChange={(event) => {
+                  setNameInput(event.target.value);
+                  setNameError("");
+                }}
+                placeholder="Display name"
+                disabled={updatingName || loading}
+              />
+              {nameError ? <p className="field-error">{nameError}</p> : null}
+              {nameNotice ? <p className="field-success">{nameNotice}</p> : null}
+              <button type="submit" disabled={updatingName || loading}>
+                {updatingName ? "Saving..." : "Save name"}
+              </button>
+            </form>
+          </article>
 
-            <input
-              type="password"
-              value={passwordValues.confirmPassword}
-              onChange={(event) => handlePasswordField("confirmPassword", event.target.value)}
-              placeholder="Confirm new password"
-              autoComplete="new-password"
-            />
-            {passwordErrors.confirmPassword ? (
-              <p className="field-error">{passwordErrors.confirmPassword}</p>
-            ) : null}
+          <article className="profile-form-card">
+            <h2>Change Password</h2>
+            <form className="profile-form" onSubmit={handlePasswordSubmit}>
+              <input
+                type="password"
+                value={passwordValues.currentPassword}
+                onChange={(event) => handlePasswordField("currentPassword", event.target.value)}
+                placeholder="Current password"
+                autoComplete="current-password"
+              />
+              {passwordErrors.currentPassword ? (
+                <p className="field-error">{passwordErrors.currentPassword}</p>
+              ) : null}
 
-            {passwordNotice ? <p className="field-success">{passwordNotice}</p> : null}
+              <input
+                type="password"
+                value={passwordValues.newPassword}
+                onChange={(event) => handlePasswordField("newPassword", event.target.value)}
+                placeholder="New password"
+                autoComplete="new-password"
+              />
+              {passwordErrors.newPassword ? (
+                <p className="field-error">{passwordErrors.newPassword}</p>
+              ) : null}
 
-            <button type="submit">Update password</button>
-          </form>
-        </article>
+              <input
+                type="password"
+                value={passwordValues.confirmPassword}
+                onChange={(event) => handlePasswordField("confirmPassword", event.target.value)}
+                placeholder="Confirm new password"
+                autoComplete="new-password"
+              />
+              {passwordErrors.confirmPassword ? (
+                <p className="field-error">{passwordErrors.confirmPassword}</p>
+              ) : null}
+
+              {passwordNotice ? <p className="field-success">{passwordNotice}</p> : null}
+
+              <button type="submit">Update password</button>
+            </form>
+          </article>
+        </section>
       </section>
     </AppShell>
   );

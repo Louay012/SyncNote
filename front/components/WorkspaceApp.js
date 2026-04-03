@@ -1004,6 +1004,12 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
     }
   }
 
+  function openShareModal() {
+    setModalError("");
+    setCollabEmail("");
+    setModal({ type: "share-document" });
+  }
+
   function handleSelectSection(sectionId) {
     clearPendingSave();
     clearPendingCursorUpdate();
@@ -1040,57 +1046,6 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
           loading={savingVersion || restoringVersion || loadingVersions}
           disabled={!activeDoc}
         />
-      )
-    },
-    {
-      id: "collaborators",
-      label: "Collaborators",
-      badge: activeDoc?.collaborators?.length || 0,
-      content: (
-        <section className="collaborators-tab">
-          <h3>Collaborators</h3>
-          {modalError ? <p className="field-error">{modalError}</p> : null}
-          <form className="share-form" onSubmit={handleShare}>
-            <input
-              value={collabEmail}
-              onChange={(event) => setCollabEmail(event.target.value)}
-              placeholder="Collaborator email"
-              disabled={!activeDoc || sharingDocument || unsharingDocument}
-            />
-            <select
-              value={collabPermission}
-              onChange={(event) => setCollabPermission(event.target.value)}
-              disabled={!activeDoc || sharingDocument || unsharingDocument}
-            >
-              <option value="EDIT">EDIT</option>
-              <option value="VIEW">VIEW</option>
-            </select>
-            <button type="submit" disabled={!activeDoc || sharingDocument || unsharingDocument}>
-              {sharingDocument ? "Sharing..." : "Share"}
-            </button>
-          </form>
-
-          <div className="collab-list">
-            {(activeDoc?.collaborators || []).map((collaborator) => (
-              <div key={collaborator.id} className="collab-item">
-                <div>
-                  <strong>{collaborator.name}</strong>
-                  <small>{collaborator.email}</small>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => handleUnshare(collaborator.email)}
-                  disabled={sharingDocument || unsharingDocument}
-                >
-                  Remove
-                </button>
-              </div>
-            ))}
-            {(activeDoc?.collaborators || []).length === 0 ? (
-              <p className="empty">No collaborators yet.</p>
-            ) : null}
-          </div>
-        </section>
       )
     }
   ];
@@ -1168,6 +1123,8 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
               onCursorActivity={handleCursorActivity}
               typingNotice={typingNotice}
               updatedByName={activeSection?.updatedBy?.name || lastSectionActor}
+              onOpenShareModal={openShareModal}
+              collaboratorCount={(activeDoc?.collaborators || []).length}
             />
           </section>
 
@@ -1200,6 +1157,62 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
                   </button>
                   <button type="button" onClick={submitCreateSection}>
                     Create
+                  </button>
+                </div>
+              </>
+            ) : null}
+
+            {modal.type === "share-document" ? (
+              <>
+                <h3>Share Document</h3>
+                <p className="list-meta">Invite collaborators and manage access.</p>
+                <form className="share-form" onSubmit={handleShare}>
+                  <input
+                    value={collabEmail}
+                    onChange={(event) => setCollabEmail(event.target.value)}
+                    placeholder="Collaborator email"
+                    disabled={!activeDoc || sharingDocument || unsharingDocument}
+                  />
+                  <select
+                    value={collabPermission}
+                    onChange={(event) => setCollabPermission(event.target.value)}
+                    disabled={!activeDoc || sharingDocument || unsharingDocument}
+                  >
+                    <option value="EDIT">EDIT</option>
+                    <option value="VIEW">VIEW</option>
+                  </select>
+                  <button
+                    type="submit"
+                    disabled={!activeDoc || sharingDocument || unsharingDocument}
+                  >
+                    {sharingDocument ? "Sharing..." : "Share"}
+                  </button>
+                </form>
+
+                <div className="collab-list">
+                  {(activeDoc?.collaborators || []).map((collaborator) => (
+                    <div key={collaborator.id} className="collab-item">
+                      <div>
+                        <strong>{collaborator.name}</strong>
+                        <small>{collaborator.email}</small>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleUnshare(collaborator.email)}
+                        disabled={sharingDocument || unsharingDocument}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                  {(activeDoc?.collaborators || []).length === 0 ? (
+                    <p className="empty">No collaborators yet.</p>
+                  ) : null}
+                </div>
+
+                <div className="modal-actions">
+                  <button type="button" onClick={closeModal}>
+                    Close
                   </button>
                 </div>
               </>

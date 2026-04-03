@@ -65,6 +65,7 @@ export default function DocumentList({
   onSelect,
   onOpenCollaborators,
   showShareActions = true,
+  showShareActionsOnShared = false,
   showCreateButton = true,
   onCreate,
   onPrevPage,
@@ -101,7 +102,7 @@ export default function DocumentList({
         activeId={activeId}
         onSelect={onSelect}
         onOpenCollaborators={onOpenCollaborators}
-        showShareActions={showShareActions}
+        showShareActions={showShareActionsOnShared}
       />
       <div className="list-pagination">
         <button type="button" onClick={onPrevPage} disabled={!canPrev}>

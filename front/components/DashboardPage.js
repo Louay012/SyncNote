@@ -8,52 +8,29 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
-import DocumentList from "@/components/DocumentList";
 import { createApolloClient } from "@/lib/apollo";
 import { clearStoredToken, getStoredToken, setStoredToken } from "@/lib/authToken";
 import {
   GET_ME,
   GET_MY_DOCUMENTS,
-  GET_SHARED_DOCUMENTS,
-  SEARCH_DOCUMENTS
+  GET_SHARED_DOCUMENTS
 } from "@/lib/graphql";
 import { toFriendlyError } from "@/lib/uiErrors";
 
-const PAGE_SIZE = 8;
+const RECENT_LIMIT = 6;
 
 function DashboardContent({ token, onLogout }) {
   const router = useRouter();
   const apolloClient = useApolloClient();
-
-  const [listOffset, setListOffset] = useState(0);
-  const [sortBy, setSortBy] = useState("UPDATED_AT");
-  const [sortDirection, setSortDirection] = useState("DESC");
-  const [searchInput, setSearchInput] = useState("");
-  const [searchKeyword, setSearchKeyword] = useState("");
-
-  const listingVariables = {
-    limit: PAGE_SIZE,
-    offset: listOffset,
-    sortBy,
-    sortDirection
-  };
-
-  const searching = searchKeyword.length >= 2;
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      const nextKeyword = searchInput.trim();
-      setSearchKeyword(nextKeyword);
-      setListOffset(0);
-    }, 250);
-
-    return () => window.clearTimeout(timer);
-  }, [searchInput]);
-
-  useEffect(() => {
-    // Reset pagination when sort order changes.
-    setListOffset(0);
-  }, [sortBy, sortDirection]);
+  const listingVariables = useMemo(
+    () => ({
+      limit: RECENT_LIMIT,
+      offset: 0,
+      sortBy: "UPDATED_AT",
+      sortDirection: "DESC"
+    }),
+    []
+  );
 
   const { data: meData } = useQuery(GET_ME, {
     skip: !token,
@@ -67,7 +44,7 @@ function DashboardContent({ token, onLogout }) {
     refetch: refetchMine
   } = useQuery(GET_MY_DOCUMENTS, {
     variables: listingVariables,
-    skip: !token || searching,
+    skip: !token,
     fetchPolicy: "cache-and-network"
   });
 
@@ -78,41 +55,23 @@ function DashboardContent({ token, onLogout }) {
     refetch: refetchShared
   } = useQuery(GET_SHARED_DOCUMENTS, {
     variables: listingVariables,
-    skip: !token || searching,
+    skip: !token,
     fetchPolicy: "cache-and-network"
   });
 
-  const {
-    data: searchDocsData,
-    loading: loadingSearch,
-    error: searchError,
-    refetch: refetchSearch
-  } = useQuery(SEARCH_DOCUMENTS, {
-    variables: {
-      keyword: searchKeyword,
-      ...listingVariables
-    },
-    skip: !token || !searching,
-    fetchPolicy: "cache-and-network"
-  });
-
-  const myDocs = searching
-    ? searchDocsData?.searchDocuments?.items || []
-    : myDocsData?.myDocuments?.items || [];
-  const sharedDocs = searching ? [] : sharedDocsData?.sharedWithMeDocuments?.items || [];
+  const myDocs = myDocsData?.myDocuments?.items || [];
+  const sharedDocs = sharedDocsData?.sharedWithMeDocuments?.items || [];
   const totalMine = myDocsData?.myDocuments?.total || 0;
   const totalShared = sharedDocsData?.sharedWithMeDocuments?.total || 0;
-  const totalSearch = searchDocsData?.searchDocuments?.total || 0;
-  const activeTotal = searching ? totalSearch : totalMine + totalShared;
+  const totalDocuments = totalMine + totalShared;
 
-  const listingError = myDocsError || sharedDocsError || searchError;
+  const recentItems = [...myDocs, ...sharedDocs]
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+    .slice(0, 8);
+
+  const listingError = myDocsError || sharedDocsError;
 
   async function refreshCollections() {
-    if (searching) {
-      await refetchSearch();
-      return;
-    }
-
     await Promise.all([refetchMine(), refetchShared()]);
   }
 
@@ -129,31 +88,53 @@ function DashboardContent({ token, onLogout }) {
 
   return (
     <AppShell
-      title="All Documents"
+      title="Dashboard"
       subtitle={`Signed in as ${meData?.me?.name || "User"}`}
       onLogout={handleLogout}
     >
-      <section className="panel dashboard-toolbar">
-        <div className="dashboard-filters">
-          <input
-            value={searchInput}
-            onChange={(event) => setSearchInput(event.target.value)}
-            placeholder="Search documents"
-          />
-          <select value={sortBy} onChange={(event) => setSortBy(event.target.value)}>
-            <option value="UPDATED_AT">Sort by updated</option>
-            <option value="CREATED_AT">Sort by created</option>
-            <option value="TITLE">Sort by title</option>
-          </select>
-          <select
-            value={sortDirection}
-            onChange={(event) => setSortDirection(event.target.value)}
-          >
-            <option value="DESC">Descending</option>
-            <option value="ASC">Ascending</option>
-          </select>
+      <section className="panel dashboard-overview">
+        <div>
+          <p className="list-meta">Workspace snapshot</p>
+          <h2>Focus on what needs attention</h2>
+          <p>
+            Keep moving with quick actions, recent updates, and document health at a glance.
+          </p>
         </div>
-        <p className="list-meta">Create new documents from the sidebar.</p>
+        <div className="dashboard-actions">
+          <button type="button" onClick={() => router.push("/documents")}>View All Documents</button>
+          <button
+            type="button"
+            onClick={() => {
+              if (!recentItems.length) {
+                return;
+              }
+              handleSelectDocument(recentItems[0].id);
+            }}
+            disabled={!recentItems.length}
+          >
+            Resume Last Edited
+          </button>
+        </div>
+      </section>
+
+      <section className="dashboard-stats-grid">
+        <article className="panel dashboard-stat-card">
+          <h3>Total Documents</h3>
+          <strong>{totalDocuments}</strong>
+          <p className="list-meta">Owned + shared documents in your workspace.</p>
+        </article>
+
+        <article className="panel dashboard-stat-card">
+          <h3>My Documents</h3>
+          <strong>{totalMine}</strong>
+          <p className="list-meta">Documents you created and manage.</p>
+        </article>
+
+        <article className="panel dashboard-stat-card">
+          <h3>Shared With Me</h3>
+          <strong>{totalShared}</strong>
+          <p className="list-meta">Collaborative documents from your team.</p>
+        </article>
       </section>
 
       {listingError ? (
@@ -165,32 +146,33 @@ function DashboardContent({ token, onLogout }) {
         </section>
       ) : null}
 
-      <DocumentList
-        myDocs={myDocs}
-        sharedDocs={sharedDocs}
-        totalMine={totalMine}
-        totalShared={totalShared}
-        showingSearch={searching}
-        totalSearch={totalSearch}
-        activeId={null}
-        onSelect={handleSelectDocument}
-        onOpenCollaborators={() => {}}
-        showShareActions={false}
-        showCreateButton={false}
-        onCreate={() => {}}
-        onPrevPage={() => setListOffset((current) => Math.max(current - PAGE_SIZE, 0))}
-        onNextPage={() => setListOffset((current) => current + PAGE_SIZE)}
-        canPrev={listOffset > 0}
-        canNext={listOffset + PAGE_SIZE < activeTotal}
-      />
+      <section className="panel dashboard-recent-panel">
+        <div className="dashboard-panel-header">
+          <h3>Recent Activity</h3>
+          <button type="button" onClick={() => router.push("/documents")}>Open Documents</button>
+        </div>
 
-      {!loadingMine && !loadingShared && !loadingSearch && !myDocs.length && !sharedDocs.length ? (
-        <section className="panel notice-panel">
-          <p>No documents yet. Use Create Document in the sidebar to get started.</p>
-        </section>
-      ) : null}
+        {recentItems.length === 0 && !loadingMine && !loadingShared ? (
+          <p className="list-meta">No documents yet. Create your first one from the sidebar.</p>
+        ) : null}
 
-      {loadingMine || loadingShared || loadingSearch ? (
+        <div className="dashboard-recent-list">
+          {recentItems.map((doc) => (
+            <button
+              key={doc.id}
+              type="button"
+              className="dashboard-recent-item"
+              onClick={() => handleSelectDocument(doc.id)}
+            >
+              <strong>{doc.title}</strong>
+              <span>{new Date(doc.updatedAt).toLocaleString()}</span>
+              <small>Owner: {doc.owner?.name || "Unknown"}</small>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {loadingMine || loadingShared ? (
         <p className="list-meta">Loading documents...</p>
       ) : null}
     </AppShell>

@@ -34,7 +34,9 @@ export default function EditorPane({
   cursorUsers,
   onCursorActivity,
   typingNotice,
-  updatedByName
+  updatedByName,
+  onOpenShareModal,
+  collaboratorCount = 0
 }) {
   const [title, setTitle] = useState("");
   const [sectionTitleDraft, setSectionTitleDraft] = useState("");
@@ -123,9 +125,19 @@ export default function EditorPane({
           onChange={(event) => setTitle(event.target.value)}
           placeholder="Document title"
         />
-        <button type="button" disabled={saving} onClick={() => onSaveTitle(title)}>
-          {saving ? "Saving..." : "Save title"}
-        </button>
+        <div className="editor-title-actions">
+          <button type="button" disabled={saving} onClick={() => onSaveTitle(title)}>
+            {saving ? "Saving..." : "Save title"}
+          </button>
+          <button
+            type="button"
+            className="share-trigger"
+            onClick={onOpenShareModal}
+            disabled={!document}
+          >
+            Share ({collaboratorCount})
+          </button>
+        </div>
       </div>
 
       <div className="editor-toolbar">

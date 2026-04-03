@@ -10,7 +10,7 @@ export function middleware(request) {
   const { pathname } = request.nextUrl;
   const authenticated = isAuthenticated(request);
   const publicAuthRoutes = ["/auth", "/login", "/signup"];
-  const protectedRoutes = ["/", "/profile", "/settings"];
+  const protectedRoutes = ["/", "/documents", "/profile", "/settings"];
   const protectedPrefixRoutes = ["/doc/"];
 
   if (pathname === "/login" || pathname === "/signup") {
@@ -33,5 +33,14 @@ export function middleware(request) {
 }
 
 export const config = {
-  matcher: ["/", "/auth", "/login", "/signup", "/doc/:path*", "/profile", "/settings"]
+  matcher: [
+    "/",
+    "/documents",
+    "/auth",
+    "/login",
+    "/signup",
+    "/doc/:path*",
+    "/profile",
+    "/settings"
+  ]
 };
