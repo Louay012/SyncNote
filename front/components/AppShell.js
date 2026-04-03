@@ -3,24 +3,6 @@
 import { useEffect, useState } from "react";
 import SidebarNavigation from "@/components/SidebarNavigation";
 
-const SIDEBAR_STATE_KEY = "syncnote-sidebar-collapsed";
-
-function readSidebarState() {
-  if (typeof window === "undefined") {
-    return false;
-  }
-
-  return window.localStorage.getItem(SIDEBAR_STATE_KEY) === "1";
-}
-
-function writeSidebarState(collapsed) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  window.localStorage.setItem(SIDEBAR_STATE_KEY, collapsed ? "1" : "0");
-}
-
 export default function AppShell({
   title,
   subtitle = "",
@@ -28,33 +10,63 @@ export default function AppShell({
   children,
   variant = "default"
 }) {
-  const [collapsed, setCollapsed] = useState(false);
+  const isEditorVariant = variant === "editor";
+  const defaultOpen = !isEditorVariant;
+  const [isOpen, setIsOpen] = useState(defaultOpen);
 
   useEffect(() => {
-    setCollapsed(readSidebarState());
-  }, []);
+    setIsOpen(defaultOpen);
+  }, [defaultOpen]);
 
-  function handleToggleCollapse() {
-    setCollapsed((current) => {
-      const next = !current;
-      writeSidebarState(next);
-      return next;
-    });
+  useEffect(() => {
+    if (!isEditorVariant || !isOpen) {
+      return undefined;
+    }
+
+    function onEscape(event) {
+      if (event.key === "Escape") {
+        setIsOpen(false);
+      }
+    }
+
+    window.addEventListener("keydown", onEscape);
+    return () => window.removeEventListener("keydown", onEscape);
+  }, [isEditorVariant, isOpen]);
+
+  function handleToggleSidebar() {
+    setIsOpen((current) => !current);
+  }
+
+  function handleNavigate() {
+    if (isEditorVariant) {
+      setIsOpen(false);
+    }
   }
 
   const shellClassName = [
     "app-shell",
-    variant === "editor" ? "app-shell-editor" : "",
-    collapsed ? "app-shell-collapsed" : ""
+    isEditorVariant ? "app-shell-editor" : "",
+    isOpen ? "sidebar-open" : "sidebar-closed"
   ]
     .filter(Boolean)
     .join(" ");
 
   return (
     <main className={shellClassName}>
+      {isEditorVariant && isOpen ? (
+        <button
+          type="button"
+          className="app-overlay-backdrop"
+          onClick={() => setIsOpen(false)}
+          aria-label="Close navigation"
+        />
+      ) : null}
+
       <SidebarNavigation
-        collapsed={collapsed}
-        onToggleCollapse={handleToggleCollapse}
+        variant={variant}
+        isOpen={isOpen}
+        onToggleSidebar={handleToggleSidebar}
+        onNavigate={handleNavigate}
         onLogout={onLogout}
       />
 
