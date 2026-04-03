@@ -259,8 +259,9 @@ function DocumentsContent({ token, onLogout }) {
         activeId={null}
         onSelect={handleSelectDocument}
         onOpenCollaborators={openShareModal}
-        showShareActions={!searching}
+        showShareActions
         showShareActionsOnShared={false}
+        canShareDoc={(doc) => String(doc?.owner?.id || "") === String(meData?.me?.id || "")}
         showCreateButton={false}
         onCreate={() => {}}
         onPrevPage={() => setListOffset((current) => Math.max(current - PAGE_SIZE, 0))}

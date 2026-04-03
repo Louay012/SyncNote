@@ -25,6 +25,19 @@ const Share = {
     return [];
   },
 
+  async findByDocumentIds(documentIds = []) {
+    if (!documentIds.length) {
+      return [];
+    }
+
+    const { rows } = await query(
+      `${baseSelect} WHERE document_id = ANY($1::bigint[]) ORDER BY document_id, updated_at DESC`,
+      [documentIds]
+    );
+
+    return rows.map(mapShare);
+  },
+
   async findOne(filter = {}) {
     const conditions = [];
     const values = [];

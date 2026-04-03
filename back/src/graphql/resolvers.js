@@ -792,57 +792,71 @@ export const resolvers = {
   },
 
   Document: {
-    owner: async (doc) => User.findById(doc.owner),
+    owner: async (doc, _, contextValue) => contextValue.loaders.usersById.load(doc.owner),
 
-    content: async (doc) => {
-      const sections = await Section.findByDocumentId(doc.id);
+    content: async (doc, _, contextValue) => {
+      const sections = await contextValue.loaders.sectionsByDocumentId.load(doc.id);
       const root = firstRootSection(sections);
       return root?.content ?? doc.content ?? "";
     },
 
-    collaborators: async (doc) => {
-      const shares = await Share.find({ document: doc.id });
+    collaborators: async (doc, _, contextValue) => {
+      const shares = await contextValue.loaders.sharesByDocumentId.load(doc.id);
       const userIds = shares.map((share) => share.user);
-      return User.findByIds(userIds);
+
+      if (!userIds.length) {
+        return [];
+      }
+
+      const users = await contextValue.loaders.usersById.loadMany(userIds);
+      return users.filter((user) => user && !(user instanceof Error));
     },
 
-    sections: async (doc) => {
+    sections: async (doc, _, contextValue) => {
       await Section.ensureDefaults(doc.id, doc.content || "");
-      return Section.findByDocumentId(doc.id);
+      contextValue.loaders.sectionsByDocumentId.clear(doc.id);
+      return contextValue.loaders.sectionsByDocumentId.load(doc.id);
     },
 
-    comments: async (doc) => Comment.find({ document: doc.id })
+    comments: async (doc, _, contextValue) =>
+      contextValue.loaders.commentsByDocumentId.load(doc.id)
   },
 
   Section: {
-    updatedBy: async (section) => {
+    updatedBy: async (section, _, contextValue) => {
       if (!section.updatedById) {
         return null;
       }
 
-      return User.findById(section.updatedById);
+      return contextValue.loaders.usersById.load(section.updatedById);
     }
   },
 
   Comment: {
-    author: async (comment) => User.findById(comment.author),
-    section: async (comment) => Section.findById(comment.section)
+    author: async (comment, _, contextValue) =>
+      contextValue.loaders.usersById.load(comment.author),
+    section: async (comment, _, contextValue) =>
+      contextValue.loaders.sectionsById.load(comment.section)
   },
 
   Share: {
-    user: async (share) => User.findById(share.user),
-    document: async (share) => Document.findById(share.document)
+    user: async (share, _, contextValue) => contextValue.loaders.usersById.load(share.user),
+    document: async (share, _, contextValue) =>
+      contextValue.loaders.documentsById.load(share.document)
   },
 
   Version: {
-    createdBy: async (version) => User.findById(version.createdBy)
+    createdBy: async (version, _, contextValue) =>
+      contextValue.loaders.usersById.load(version.createdBy)
   },
 
   Presence: {
-    user: async (presence) => User.findById(presence.userId)
+    user: async (presence, _, contextValue) =>
+      contextValue.loaders.usersById.load(presence.userId)
   },
 
   TypingEvent: {
-    user: async (typingEvent) => User.findById(typingEvent.userId)
+    user: async (typingEvent, _, contextValue) =>
+      contextValue.loaders.usersById.load(typingEvent.userId)
   }
 };

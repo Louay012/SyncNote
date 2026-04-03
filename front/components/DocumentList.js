@@ -14,7 +14,8 @@ function Group({
   activeId,
   onSelect,
   onOpenCollaborators,
-  showShareActions
+  showShareActions,
+  canShareDoc
 }) {
   return (
     <div className="doc-group">
@@ -37,7 +38,7 @@ function Group({
             <span>{formatTime(doc.updatedAt)}</span>
             <small>Owner: {doc.owner.name}</small>
           </button>
-          {showShareActions ? (
+          {showShareActions && (canShareDoc ? canShareDoc(doc) : true) ? (
             <button
               type="button"
               className="doc-collab-btn"
@@ -65,6 +66,7 @@ export default function DocumentList({
   onOpenCollaborators,
   showShareActions = true,
   showShareActionsOnShared = false,
+  canShareDoc,
   showCreateButton = true,
   onCreate
 }) {
@@ -89,6 +91,7 @@ export default function DocumentList({
           onSelect={onSelect}
           onOpenCollaborators={onOpenCollaborators}
           showShareActions={showShareActions}
+          canShareDoc={canShareDoc}
         />
       ) : null}
       {scope !== "my" ? (
@@ -99,6 +102,7 @@ export default function DocumentList({
           onSelect={onSelect}
           onOpenCollaborators={onOpenCollaborators}
           showShareActions={showShareActionsOnShared}
+          canShareDoc={canShareDoc}
         />
       ) : null}
     </aside>

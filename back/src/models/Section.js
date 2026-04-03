@@ -81,6 +81,19 @@ const Section = {
     return mapSection(rows[0]);
   },
 
+  async findByIds(ids = []) {
+    if (!ids.length) {
+      return [];
+    }
+
+    const { rows } = await query(
+      `${baseSelect} WHERE id = ANY($1::bigint[])`,
+      [ids]
+    );
+
+    return rows.map(mapSection);
+  },
+
   async findByDocumentId(documentId) {
     const { rows } = await query(
       `
@@ -89,6 +102,23 @@ const Section = {
         ORDER BY COALESCE(parent_id, id), parent_id NULLS FIRST, order_index, id
       `,
       [documentId]
+    );
+
+    return rows.map(mapSection);
+  },
+
+  async findByDocumentIds(documentIds = []) {
+    if (!documentIds.length) {
+      return [];
+    }
+
+    const { rows } = await query(
+      `
+        ${baseSelect}
+        WHERE document_id = ANY($1::bigint[])
+        ORDER BY document_id, COALESCE(parent_id, id), parent_id NULLS FIRST, order_index, id
+      `,
+      [documentIds]
     );
 
     return rows.map(mapSection);

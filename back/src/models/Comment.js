@@ -61,6 +61,25 @@ const Comment = {
     }
 
     return [];
+  },
+
+  async findByDocumentIds(documentIds = []) {
+    if (!documentIds.length) {
+      return [];
+    }
+
+    const { rows } = await query(
+      `
+        SELECT c.id, c.text, c.author_id, c.section_id, s.document_id, c.created_at, c.updated_at
+        FROM comments c
+        INNER JOIN sections s ON s.id = c.section_id
+        WHERE s.document_id = ANY($1::bigint[])
+        ORDER BY s.document_id, c.created_at DESC
+      `,
+      [documentIds]
+    );
+
+    return rows.map(mapComment);
   }
 };
 

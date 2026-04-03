@@ -1,7 +1,11 @@
 "use client";
 
+import { useMutation } from "@apollo/client";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { CREATE_DOCUMENT } from "@/lib/graphql";
+import { toFriendlyError } from "@/lib/uiErrors";
 
 function Icon({ children }) {
   return (
@@ -58,6 +62,14 @@ function LogoutIcon() {
   );
 }
 
+function PlusIcon() {
+  return (
+    <Icon>
+      <path d="M12 5v14M5 12h14" />
+    </Icon>
+  );
+}
+
 function CollapseIcon({ collapsed }) {
   return collapsed ? (
     <Icon>
@@ -86,7 +98,68 @@ export default function SidebarNavigation({
   onLogout
 }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [createTitle, setCreateTitle] = useState("");
+  const [createError, setCreateError] = useState("");
+  const [createDocument, { loading: creatingDocument }] = useMutation(CREATE_DOCUMENT);
   const collapsed = !isOpen;
+
+  useEffect(() => {
+    if (!showCreateDialog) {
+      return undefined;
+    }
+
+    function onKeyDown(event) {
+      if (event.key === "Escape" && !creatingDocument) {
+        closeCreateDialog();
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [showCreateDialog, creatingDocument]);
+
+  function openCreateDialog() {
+    setCreateError("");
+    setCreateTitle("");
+    setShowCreateDialog(true);
+  }
+
+  function closeCreateDialog() {
+    setShowCreateDialog(false);
+    setCreateError("");
+  }
+
+  async function handleCreateDocument(event) {
+    event.preventDefault();
+
+    const title = String(createTitle || "").trim();
+    if (!title) {
+      setCreateError("Document title is required.");
+      return;
+    }
+
+    setCreateError("");
+    try {
+      const result = await createDocument({
+        variables: {
+          title,
+          content: ""
+        }
+      });
+
+      closeCreateDialog();
+      onNavigate?.();
+
+      const createdId = result.data?.createDocument?.id;
+      if (createdId) {
+        router.push(`/doc/${createdId}`);
+      }
+    } catch (error) {
+      setCreateError(toFriendlyError(error));
+    }
+  }
 
   const sidebarClassName = [
     "app-sidebar",
@@ -97,7 +170,8 @@ export default function SidebarNavigation({
     .join(" ");
 
   return (
-    <aside className={sidebarClassName}>
+    <>
+      <aside className={sidebarClassName}>
       <div className="app-sidebar-top">
         <Link href="/" className="app-brand" aria-label="Go to dashboard" onClick={onNavigate}>
           <span className="nav-icon" aria-hidden="true">
@@ -122,6 +196,19 @@ export default function SidebarNavigation({
             <CollapseIcon collapsed={collapsed} />
           </span>
           {!collapsed ? <span className="nav-label">Collapse</span> : null}
+        </button>
+
+        <button
+          type="button"
+          className="nav-link sidebar-create-btn"
+          onClick={openCreateDialog}
+          disabled={creatingDocument}
+          title="Create document"
+        >
+          <span className="nav-icon" aria-hidden="true">
+            <PlusIcon />
+          </span>
+          {!collapsed ? <span className="nav-label">New Document</span> : null}
         </button>
       </div>
 
@@ -195,6 +282,49 @@ export default function SidebarNavigation({
           {!collapsed ? <span className="nav-label">Logout</span> : null}
         </button>
       </div>
-    </aside>
+
+      </aside>
+
+      {showCreateDialog ? (
+        <section
+          className="modal-backdrop"
+          role="presentation"
+          onClick={() => {
+            if (!creatingDocument) {
+              closeCreateDialog();
+            }
+          }}
+        >
+          <article
+            className="panel modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-document-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h3 id="create-document-title">Create Document</h3>
+            <p className="list-meta">Duplicate names are allowed.</p>
+            <form className="sidebar-create-form" onSubmit={handleCreateDocument}>
+              <input
+                autoFocus
+                value={createTitle}
+                onChange={(event) => setCreateTitle(event.target.value)}
+                placeholder="Document title"
+                disabled={creatingDocument}
+              />
+              {createError ? <p className="field-error">{createError}</p> : null}
+              <div className="sidebar-create-actions">
+                <button type="button" onClick={closeCreateDialog} disabled={creatingDocument}>
+                  Cancel
+                </button>
+                <button type="submit" disabled={creatingDocument}>
+                  {creatingDocument ? "Creating..." : "Create"}
+                </button>
+              </div>
+            </form>
+          </article>
+        </section>
+      ) : null}
+    </>
   );
 }
