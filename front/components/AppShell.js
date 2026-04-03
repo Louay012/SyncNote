@@ -3,6 +3,33 @@
 import { useEffect, useState } from "react";
 import SidebarNavigation from "@/components/SidebarNavigation";
 
+const SIDEBAR_STATE_KEY = "syncnote-sidebar-open";
+
+function readSidebarState(defaultOpen) {
+  if (typeof window === "undefined") {
+    return defaultOpen;
+  }
+
+  const saved = window.localStorage.getItem(SIDEBAR_STATE_KEY);
+  if (saved === "1") {
+    return true;
+  }
+
+  if (saved === "0") {
+    return false;
+  }
+
+  return defaultOpen;
+}
+
+function writeSidebarState(isOpen) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem(SIDEBAR_STATE_KEY, isOpen ? "1" : "0");
+}
+
 export default function AppShell({
   title,
   subtitle = "",
@@ -11,11 +38,11 @@ export default function AppShell({
   variant = "default"
 }) {
   const isEditorVariant = variant === "editor";
-  const defaultOpen = !isEditorVariant;
+  const defaultOpen = true;
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
   useEffect(() => {
-    setIsOpen(defaultOpen);
+    setIsOpen(readSidebarState(defaultOpen));
   }, [defaultOpen]);
 
   useEffect(() => {
@@ -34,7 +61,11 @@ export default function AppShell({
   }, [isEditorVariant, isOpen]);
 
   function handleToggleSidebar() {
-    setIsOpen((current) => !current);
+    setIsOpen((current) => {
+      const next = !current;
+      writeSidebarState(next);
+      return next;
+    });
   }
 
   function handleNavigate() {

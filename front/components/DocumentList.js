@@ -98,7 +98,7 @@ export default function DocumentList({
           activeId={activeId}
           onSelect={onSelect}
           onOpenCollaborators={onOpenCollaborators}
-          showShareActions={showShareActions}
+          showShareActions={showShareActionsOnShared}
         />
       ) : null}
     </aside>
