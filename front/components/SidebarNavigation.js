@@ -3,15 +3,11 @@
 import { useMutation, useQuery } from "@apollo/client";
 import { useState } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import {
-  CREATE_DOCUMENT,
-  GET_MY_DOCUMENTS,
-  GET_SHARED_DOCUMENTS
-} from "@/lib/graphql";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { CREATE_DOCUMENT, GET_MY_DOCUMENTS, GET_SHARED_DOCUMENTS } from "@/lib/graphql";
 import { toFriendlyError } from "@/lib/uiErrors";
 
-const SIDEBAR_DOC_LIMIT = 6;
+const SIDEBAR_DOC_LIMIT = 4;
 
 const listVariables = {
   limit: SIDEBAR_DOC_LIMIT,
@@ -25,15 +21,6 @@ function Icon({ children }) {
     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" className="nav-icon-svg">
       {children}
     </svg>
-  );
-}
-
-function HomeIcon() {
-  return (
-    <Icon>
-      <path d="M3.5 10.5 12 3l8.5 7.5" />
-      <path d="M6.5 9.5v10h11v-10" />
-    </Icon>
   );
 }
 
@@ -83,24 +70,17 @@ function LogoutIcon() {
   );
 }
 
-function CollapseIcon({ collapsed }) {
-  return collapsed ? (
-    <Icon>
-      <path d="m9 5 6 7-6 7" />
-    </Icon>
-  ) : (
-    <Icon>
-      <path d="m15 5-6 7 6 7" />
-    </Icon>
-  );
-}
-
-function DocumentGroup({ title, documents = [], pathname }) {
+function RecentDocuments({ documents = [], pathname, onNavigate }) {
   return (
-    <section className="sidebar-doc-group" aria-label={title}>
-      <h3>{title}</h3>
+    <section className="sidebar-doc-group" aria-label="Recent Documents">
+      <div className="sidebar-doc-group-head">
+        <h3>Recent Documents</h3>
+        <Link href="/" className="sidebar-doc-see-all" onClick={onNavigate}>
+          See all
+        </Link>
+      </div>
       {documents.length === 0 ? (
-        <p className="sidebar-doc-empty">No documents</p>
+        <p className="sidebar-doc-empty">No recent documents</p>
       ) : (
         <div className="sidebar-doc-list">
           {documents.map((doc) => {
@@ -113,6 +93,7 @@ function DocumentGroup({ title, documents = [], pathname }) {
                 href={href}
                 className={isActive ? "sidebar-doc-link active" : "sidebar-doc-link"}
                 title={doc.title}
+                onClick={onNavigate}
               >
                 {doc.title}
               </Link>
@@ -128,16 +109,32 @@ function isDashboardPath(pathname) {
   return pathname === "/" || pathname.startsWith("/doc/");
 }
 
+function normalizeScope(scopeValue) {
+  if (scopeValue === "my" || scopeValue === "shared") {
+    return scopeValue;
+  }
+
+  return "all";
+}
+
 export default function SidebarNavigation({
-  collapsed = false,
-  onToggleCollapse,
+  variant = "default",
+  isOpen = true,
+  onToggleSidebar,
+  onNavigate,
   onLogout
 }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const router = useRouter();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [createTitle, setCreateTitle] = useState("");
   const [createError, setCreateError] = useState("");
+  const collapsed = !isOpen;
+  const activeScope = normalizeScope(searchParams.get("scope"));
+  const allDocsActive = isDashboardPath(pathname);
+  const myDocsFilterActive = pathname === "/" && activeScope === "my";
+  const sharedDocsFilterActive = pathname === "/" && activeScope === "shared";
 
   const {
     data: myDocumentsData,
@@ -164,6 +161,16 @@ export default function SidebarNavigation({
   const myDocuments = myDocumentsData?.myDocuments?.items || [];
   const sharedDocuments = sharedDocumentsData?.sharedWithMeDocuments?.items || [];
   const documentsError = mineError || sharedError;
+
+  const recentDocuments = [
+    ...myDocuments,
+    ...sharedDocuments
+  ]
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+    .filter((doc, index, source) => {
+      return source.findIndex((item) => String(item.id) === String(doc.id)) === index;
+    })
+    .slice(0, SIDEBAR_DOC_LIMIT);
 
   function openCreateDialog() {
     setCreateError("");
@@ -197,6 +204,7 @@ export default function SidebarNavigation({
       const createdId = result.data?.createDocument?.id;
       await Promise.all([refetchMine(), refetchShared()]);
       closeCreateDialog();
+      onNavigate?.();
 
       if (createdId) {
         router.push(`/doc/${createdId}`);
@@ -206,36 +214,43 @@ export default function SidebarNavigation({
     }
   }
 
-  const sidebarClassName = collapsed ? "app-sidebar collapsed" : "app-sidebar";
+  const sidebarClassName = [
+    "app-sidebar",
+    collapsed ? "collapsed" : "",
+    variant === "editor" ? "overlay" : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <>
       <aside className={sidebarClassName}>
         <div className="app-sidebar-top">
-          <Link href="/" className="app-brand" aria-label="Go to all documents">
-            <span className="app-brand-icon" aria-hidden="true">
-              <HomeIcon />
-            </span>
-            {!collapsed ? (
-              <span className="app-brand-text">
-                <strong>SyncNote</strong>
-                <small>Collaborative workspace</small>
-              </span>
-            ) : null}
-          </Link>
+          <div className={collapsed ? "app-brand-shell collapsed" : "app-brand-shell"}>
+            <button
+              type="button"
+              className="sidebar-hamburger"
+              onClick={onToggleSidebar}
+              aria-label={isOpen ? "Collapse sidebar" : "Expand sidebar"}
+              title={isOpen ? "Collapse sidebar" : "Expand sidebar"}
+            >
+              <span aria-hidden="true">☰</span>
+            </button>
 
-          <button
-            type="button"
-            className="nav-link sidebar-toggle"
-            onClick={onToggleCollapse}
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          >
-            <span className="nav-icon" aria-hidden="true">
-              <CollapseIcon collapsed={collapsed} />
-            </span>
-            {!collapsed ? <span className="nav-label">Collapse</span> : null}
-          </button>
+            {!collapsed ? (
+              <Link
+                href="/"
+                className="app-brand"
+                aria-label="Go to all documents"
+                onClick={onNavigate}
+              >
+                <span className="app-brand-text">
+                  <strong>SyncNote</strong>
+                  <small>Collaborative workspace</small>
+                </span>
+              </Link>
+            ) : null}
+          </div>
 
           <button
             type="button"
@@ -253,55 +268,53 @@ export default function SidebarNavigation({
 
         <div className="app-sidebar-scroll">
           <nav className="app-nav" aria-label="Main navigation">
-            <Link
-              href="/"
-              className={isDashboardPath(pathname) ? "nav-link active" : "nav-link"}
-              aria-label="All Documents"
-              title="All Documents"
-            >
-              <span className="nav-icon" aria-hidden="true">
-                <DocumentsIcon />
-              </span>
-              {!collapsed ? <span className="nav-label">All Documents</span> : null}
-            </Link>
+            <div className="all-docs-nav-group">
+              <Link
+                href="/"
+                className={allDocsActive ? "nav-link active" : "nav-link"}
+                aria-label="All Documents"
+                title="All Documents"
+                onClick={onNavigate}
+              >
+                <span className="nav-icon" aria-hidden="true">
+                  <DocumentsIcon />
+                </span>
+                {!collapsed ? <span className="nav-label">All Documents</span> : null}
+              </Link>
 
-            <Link
-              href="/profile"
-              className={pathname === "/profile" ? "nav-link active" : "nav-link"}
-              aria-label="Profile"
-              title="Profile"
-            >
-              <span className="nav-icon" aria-hidden="true">
-                <UserIcon />
-              </span>
-              {!collapsed ? <span className="nav-label">Profile</span> : null}
-            </Link>
-
-            <Link
-              href="/settings"
-              className={pathname === "/settings" ? "nav-link active" : "nav-link"}
-              aria-label="Settings"
-              title="Settings"
-            >
-              <span className="nav-icon" aria-hidden="true">
-                <SettingsIcon />
-              </span>
-              {!collapsed ? <span className="nav-label">Settings</span> : null}
-            </Link>
+              {!collapsed ? (
+                <div className="all-docs-sub-links" aria-label="All documents filters">
+                  <Link
+                    href="/?scope=my"
+                    className={
+                      myDocsFilterActive ? "all-docs-sub-link active" : "all-docs-sub-link"
+                    }
+                    onClick={onNavigate}
+                  >
+                    My Documents
+                  </Link>
+                  <Link
+                    href="/?scope=shared"
+                    className={
+                      sharedDocsFilterActive
+                        ? "all-docs-sub-link active"
+                        : "all-docs-sub-link"
+                    }
+                    onClick={onNavigate}
+                  >
+                    Shared with Me
+                  </Link>
+                </div>
+              ) : null}
+            </div>
           </nav>
 
           {!collapsed ? (
-            <section className="sidebar-docs" aria-label="Document shortcuts">
-              <DocumentGroup
-                title="My Documents"
-                documents={myDocuments}
+            <section className="sidebar-docs" aria-label="Recent documents">
+              <RecentDocuments
+                documents={recentDocuments}
                 pathname={pathname}
-              />
-
-              <DocumentGroup
-                title="Shared with Me"
-                documents={sharedDocuments}
-                pathname={pathname}
+                onNavigate={onNavigate}
               />
             </section>
           ) : null}
@@ -316,6 +329,32 @@ export default function SidebarNavigation({
         </div>
 
         <div className="app-sidebar-bottom">
+          <Link
+            href="/profile"
+            className={pathname === "/profile" ? "nav-link active" : "nav-link"}
+            aria-label="Profile"
+            title="Profile"
+            onClick={onNavigate}
+          >
+            <span className="nav-icon" aria-hidden="true">
+              <UserIcon />
+            </span>
+            {!collapsed ? <span className="nav-label">Profile</span> : null}
+          </Link>
+
+          <Link
+            href="/settings"
+            className={pathname === "/settings" ? "nav-link active" : "nav-link"}
+            aria-label="Settings"
+            title="Settings"
+            onClick={onNavigate}
+          >
+            <span className="nav-icon" aria-hidden="true">
+              <SettingsIcon />
+            </span>
+            {!collapsed ? <span className="nav-label">Settings</span> : null}
+          </Link>
+
           <button
             type="button"
             className="nav-link logout-link"

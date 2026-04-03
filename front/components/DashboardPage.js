@@ -6,7 +6,7 @@ import {
   useQuery
 } from "@apollo/client";
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import DocumentList from "@/components/DocumentList";
 import { createApolloClient } from "@/lib/apollo";
@@ -19,13 +19,22 @@ import {
 } from "@/lib/graphql";
 import { toFriendlyError } from "@/lib/uiErrors";
 
-const PAGE_SIZE = 8;
+const PAGE_SIZE = 100;
+
+function normalizeScope(value) {
+  if (value === "my" || value === "shared") {
+    return value;
+  }
+
+  return "all";
+}
 
 function DashboardContent({ token, onLogout }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const apolloClient = useApolloClient();
+  const activeScope = normalizeScope(searchParams.get("scope"));
 
-  const [listOffset, setListOffset] = useState(0);
   const [sortBy, setSortBy] = useState("UPDATED_AT");
   const [sortDirection, setSortDirection] = useState("DESC");
   const [searchInput, setSearchInput] = useState("");
@@ -33,7 +42,7 @@ function DashboardContent({ token, onLogout }) {
 
   const listingVariables = {
     limit: PAGE_SIZE,
-    offset: listOffset,
+    offset: 0,
     sortBy,
     sortDirection
   };
@@ -44,16 +53,10 @@ function DashboardContent({ token, onLogout }) {
     const timer = window.setTimeout(() => {
       const nextKeyword = searchInput.trim();
       setSearchKeyword(nextKeyword);
-      setListOffset(0);
     }, 250);
 
     return () => window.clearTimeout(timer);
   }, [searchInput]);
-
-  useEffect(() => {
-    // Reset pagination when sort order changes.
-    setListOffset(0);
-  }, [sortBy, sortDirection]);
 
   const { data: meData } = useQuery(GET_ME, {
     skip: !token,
@@ -96,14 +99,40 @@ function DashboardContent({ token, onLogout }) {
     fetchPolicy: "cache-and-network"
   });
 
-  const myDocs = searching
-    ? searchDocsData?.searchDocuments?.items || []
+  const userId = String(meData?.me?.id || "");
+  const canSeparateSearchByOwner = Boolean(userId);
+
+  const searchItems = searchDocsData?.searchDocuments?.items || [];
+  const searchMine = canSeparateSearchByOwner
+    ? searchItems.filter((item) => String(item.owner?.id || "") === userId)
+    : searchItems;
+  const searchShared = canSeparateSearchByOwner
+    ? searchItems.filter((item) => String(item.owner?.id || "") !== userId)
+    : [];
+
+  const mineSource = searching
+    ? searchMine
     : myDocsData?.myDocuments?.items || [];
-  const sharedDocs = searching ? [] : sharedDocsData?.sharedWithMeDocuments?.items || [];
-  const totalMine = myDocsData?.myDocuments?.total || 0;
-  const totalShared = sharedDocsData?.sharedWithMeDocuments?.total || 0;
-  const totalSearch = searchDocsData?.searchDocuments?.total || 0;
-  const activeTotal = searching ? totalSearch : totalMine + totalShared;
+  const sharedSource = searching
+    ? searchShared
+    : sharedDocsData?.sharedWithMeDocuments?.items || [];
+
+  const myDocs = activeScope === "shared" ? [] : mineSource;
+  const sharedDocs = activeScope === "my" ? [] : sharedSource;
+
+  const totalMineRaw = myDocsData?.myDocuments?.total || 0;
+  const totalSharedRaw = sharedDocsData?.sharedWithMeDocuments?.total || 0;
+  const totalSearchRaw = searchDocsData?.searchDocuments?.total || 0;
+
+  const totalMine = activeScope === "shared" ? 0 : searching ? searchMine.length : totalMineRaw;
+  const totalShared =
+    activeScope === "my" ? 0 : searching ? searchShared.length : totalSharedRaw;
+  const totalSearch =
+    activeScope === "all"
+      ? totalSearchRaw
+      : activeScope === "my"
+      ? searchMine.length
+      : searchShared.length;
 
   const listingError = myDocsError || sharedDocsError || searchError;
 
@@ -153,7 +182,6 @@ function DashboardContent({ token, onLogout }) {
             <option value="ASC">Ascending</option>
           </select>
         </div>
-        <p className="list-meta">Create new documents from the sidebar.</p>
       </section>
 
       {listingError ? (
@@ -168,20 +196,15 @@ function DashboardContent({ token, onLogout }) {
       <DocumentList
         myDocs={myDocs}
         sharedDocs={sharedDocs}
-        totalMine={totalMine}
-        totalShared={totalShared}
         showingSearch={searching}
         totalSearch={totalSearch}
+        scope={activeScope}
         activeId={null}
         onSelect={handleSelectDocument}
         onOpenCollaborators={() => {}}
         showShareActions={false}
         showCreateButton={false}
         onCreate={() => {}}
-        onPrevPage={() => setListOffset((current) => Math.max(current - PAGE_SIZE, 0))}
-        onNextPage={() => setListOffset((current) => current + PAGE_SIZE)}
-        canPrev={listOffset > 0}
-        canNext={listOffset + PAGE_SIZE < activeTotal}
       />
 
       {!loadingMine && !loadingShared && !loadingSearch && !myDocs.length && !sharedDocs.length ? (

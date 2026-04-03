@@ -57,20 +57,15 @@ function Group({
 export default function DocumentList({
   myDocs,
   sharedDocs,
-  totalMine,
-  totalShared,
   showingSearch,
   totalSearch,
+  scope = "all",
   activeId,
   onSelect,
   onOpenCollaborators,
   showShareActions = true,
   showCreateButton = true,
-  onCreate,
-  onPrevPage,
-  onNextPage,
-  canPrev,
-  canNext
+  onCreate
 }) {
   return (
     <aside className="panel list-panel">
@@ -84,33 +79,27 @@ export default function DocumentList({
       </div>
       {showingSearch ? (
         <p className="list-meta">Search results: {totalSearch}</p>
-      ) : (
-        <p className="list-meta">Mine: {totalMine} | Shared: {totalShared}</p>
-      )}
-      <Group
-        title="My Documents"
-        docs={myDocs}
-        activeId={activeId}
-        onSelect={onSelect}
-        onOpenCollaborators={onOpenCollaborators}
-        showShareActions={showShareActions}
-      />
-      <Group
-        title="Shared With Me"
-        docs={sharedDocs}
-        activeId={activeId}
-        onSelect={onSelect}
-        onOpenCollaborators={onOpenCollaborators}
-        showShareActions={showShareActions}
-      />
-      <div className="list-pagination">
-        <button type="button" onClick={onPrevPage} disabled={!canPrev}>
-          Prev
-        </button>
-        <button type="button" onClick={onNextPage} disabled={!canNext}>
-          Next
-        </button>
-      </div>
+      ) : null}
+      {scope !== "shared" ? (
+        <Group
+          title="My Documents"
+          docs={myDocs}
+          activeId={activeId}
+          onSelect={onSelect}
+          onOpenCollaborators={onOpenCollaborators}
+          showShareActions={showShareActions}
+        />
+      ) : null}
+      {scope !== "my" ? (
+        <Group
+          title="Shared With Me"
+          docs={sharedDocs}
+          activeId={activeId}
+          onSelect={onSelect}
+          onOpenCollaborators={onOpenCollaborators}
+          showShareActions={showShareActions}
+        />
+      ) : null}
     </aside>
   );
 }
