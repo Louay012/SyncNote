@@ -1,21 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import RichTextEditor from "@/components/RichTextEditor";
 
 function formatDate(dateString) {
   return new Date(dateString).toLocaleString();
-}
-
-function getCursorPosition(value, offset) {
-  const safeOffset = Math.max(Number(offset) || 0, 0);
-  const textBefore = String(value || "").slice(0, safeOffset);
-  const lines = textBefore.split("\n");
-
-  return {
-    line: lines.length,
-    column: (lines[lines.length - 1] || "").length + 1,
-    offset: safeOffset
-  };
 }
 
 export default function EditorPane({
@@ -30,7 +19,6 @@ export default function EditorPane({
   onSaveSectionTitle,
   activeUsers,
   currentUserId,
-  currentCursorId,
   cursorUsers,
   onCursorActivity,
   typingNotice,
@@ -40,8 +28,6 @@ export default function EditorPane({
 }) {
   const [title, setTitle] = useState("");
   const [sectionTitleDraft, setSectionTitleDraft] = useState("");
-  const [scrollOffset, setScrollOffset] = useState({ top: 0, left: 0 });
-  const textareaRef = useRef(null);
 
   useEffect(() => {
     setTitle(document?.title || "");
@@ -53,18 +39,18 @@ export default function EditorPane({
 
   const saveLabel = useMemo(() => {
     if (saveState === "saving") {
-      return "Saving...";
+      return "Autosave: Saving...";
     }
     if (saveState === "saved") {
-      return "Saved";
+      return "Autosave: Saved";
     }
     if (saveState === "error") {
-      return "Save failed";
+      return "Autosave: Failed";
     }
     if (saveState === "pending") {
-      return "Waiting to save...";
+      return "Autosave: Pending";
     }
-    return "Idle";
+    return "Autosave: Ready";
   }, [saveState]);
 
   const liveUsers = useMemo(() => {
@@ -75,34 +61,32 @@ export default function EditorPane({
 
   const liveCursorUsers = useMemo(() => {
     return (cursorUsers || []).filter((entry) => {
-      if (currentCursorId) {
-        return String(entry.cursorId || "") !== String(currentCursorId);
+      if (currentUserId) {
+        return String(entry.userId || "") !== String(currentUserId);
       }
 
       return true;
     });
-  }, [cursorUsers, currentCursorId]);
+  }, [cursorUsers, currentUserId]);
 
-  const liveCursorsInSection = useMemo(() => {
-    const currentSectionId = String(section?.id || "");
-    if (!currentSectionId) {
+  const sectionCursorUsers = useMemo(() => {
+    if (!section?.id) {
       return [];
     }
 
     return liveCursorUsers.filter((entry) => {
-      return String(entry.sectionId || "") === currentSectionId;
+      return String(entry.sectionId || "") === String(section.id);
     });
   }, [liveCursorUsers, section?.id]);
 
-  function syncScrollOffset(event) {
-    const target = event?.currentTarget;
-    if (!target) {
+  function handleRichCursorOffset(cursorPosition) {
+    if (!section || !onCursorActivity) {
       return;
     }
 
-    setScrollOffset({
-      top: target.scrollTop || 0,
-      left: target.scrollLeft || 0
+    onCursorActivity({
+      from: Math.max(Number(cursorPosition?.from) || 1, 1),
+      to: Math.max(Number(cursorPosition?.to) || 1, 1)
     });
   }
 
@@ -167,80 +151,20 @@ export default function EditorPane({
         </button>
       </div>
 
-      <p className="editor-meta">
+      <p className="editor-meta editing-section-meta">
         {section
           ? `Editing ${sectionLabel.toLowerCase()}: ${section.title}`
           : "Select a section to start writing"}
       </p>
 
       <div className="editor-textarea-wrap">
-        <textarea
-          ref={textareaRef}
+        <RichTextEditor
           value={sectionContent}
-          onChange={(event) => onSectionChange(event.target.value)}
-          onScroll={syncScrollOffset}
-          onKeyUp={(event) => {
-            syncScrollOffset(event);
-            if (!section || !onCursorActivity) {
-              return;
-            }
-            onCursorActivity(
-              getCursorPosition(event.currentTarget.value, event.currentTarget.selectionStart)
-            );
-          }}
-          onClick={(event) => {
-            syncScrollOffset(event);
-            if (!section || !onCursorActivity) {
-              return;
-            }
-            onCursorActivity(
-              getCursorPosition(event.currentTarget.value, event.currentTarget.selectionStart)
-            );
-          }}
-          onSelect={(event) => {
-            syncScrollOffset(event);
-            if (!section || !onCursorActivity) {
-              return;
-            }
-            onCursorActivity(
-              getCursorPosition(event.currentTarget.value, event.currentTarget.selectionStart)
-            );
-          }}
-          placeholder={
-            section
-              ? `Write content for ${section.title.toLowerCase()}...`
-              : "Pick a section from the left sidebar"
-          }
           disabled={!section}
+          onChange={onSectionChange}
+          onCursorOffsetChange={handleRichCursorOffset}
+          remoteCursors={sectionCursorUsers}
         />
-
-        {liveCursorsInSection.map((entry) => {
-          const color = entry.cursorColor;
-          const top = 12 + (Number(entry.line || 1) - 1) * 22 - scrollOffset.top;
-          const left = 12 + (Number(entry.column || 1) - 1) * 9 - scrollOffset.left;
-
-          return (
-            <div
-              key={`ghost-${entry.cursorId || entry.userId}`}
-              className="ghost-cursor"
-              style={{
-                top: `${Math.max(top, 8)}px`,
-                left: `${Math.max(left, 8)}px`,
-                borderLeftColor: color?.border || "#1f6aa8"
-              }}
-            >
-              <span
-                className="ghost-cursor-label"
-                style={{
-                  backgroundColor: color?.bg || "#4dabf7",
-                  color: color?.fg || "#ffffff"
-                }}
-              >
-                {entry.user?.name || "User"}
-              </span>
-            </div>
-          );
-        })}
       </div>
 
       <section className="presence-panel">
@@ -278,7 +202,7 @@ export default function EditorPane({
                   borderColor: color?.border
                 }}
               >
-                {entry.user?.name || "User"} at L{entry.line}:C{entry.column}
+                {entry.user?.name || "User"} at P{entry.from || 1}
               </span>
             );
           })}

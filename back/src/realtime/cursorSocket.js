@@ -47,16 +47,28 @@ function getDocumentCursorMap(documentId, create = false) {
   return cursorByDocument.get(key) || null;
 }
 
-function clearCursor(documentId, cursorId) {
+function clearCursor(documentId, userId, ownerCursorId = null) {
   const map = getDocumentCursorMap(documentId, false);
   if (!map) {
-    return;
+    return false;
   }
 
-  map.delete(String(cursorId));
+  const key = String(userId);
+  const existing = map.get(key);
+  if (!existing) {
+    return false;
+  }
+
+  if (ownerCursorId && String(existing.cursorId || "") !== String(ownerCursorId)) {
+    return false;
+  }
+
+  map.delete(key);
   if (map.size === 0) {
     cursorByDocument.delete(String(documentId));
   }
+
+  return true;
 }
 
 function listCursors(documentId) {
@@ -135,12 +147,19 @@ export function attachCursorSocket(httpServer, env) {
       }
 
       if (socket.data.documentId && socket.data.documentId !== safeDocumentId) {
-        clearCursor(socket.data.documentId, socket.id);
+        clearCursor(socket.data.documentId, user.id, socket.id);
         socket.leave(roomForDocument(socket.data.documentId));
       }
 
       socket.data.documentId = safeDocumentId;
       socket.join(roomForDocument(safeDocumentId));
+
+      const map = getDocumentCursorMap(safeDocumentId, true);
+      const existing = map.get(String(user.id));
+      socket.data.cursorSeq = Math.max(
+        Number(socket.data.cursorSeq) || 0,
+        Number(existing?.seq) || 0
+      );
 
       const cursors = listCursors(safeDocumentId);
 
@@ -151,7 +170,7 @@ export function attachCursorSocket(httpServer, env) {
       });
     });
 
-    socket.on("cursor:move", ({ documentId, sectionId, sectionTitle, line, column, offset } = {}) => {
+    socket.on("cursor:move", ({ documentId, sectionId, sectionTitle, from, to, offset } = {}) => {
       const user = socket.data.currentUser;
       const joinedDocumentId = socket.data.documentId;
       const safeDocumentId = String(documentId || "").trim();
@@ -164,9 +183,15 @@ export function attachCursorSocket(httpServer, env) {
         return;
       }
 
+      const map = getDocumentCursorMap(safeDocumentId, true);
+      const previous = map.get(String(user.id));
+      const nextSeq =
+        Math.max(Number(socket.data.cursorSeq) || 0, Number(previous?.seq) || 0) + 1;
+
       const payload = {
         cursorId: socket.id,
         documentId: safeDocumentId,
+        seq: nextSeq,
         userId: user.id,
         user: {
           id: user.id,
@@ -177,16 +202,24 @@ export function attachCursorSocket(httpServer, env) {
             ? String(sectionId)
             : null,
         sectionTitle: String(sectionTitle || ""),
-        line: Math.max(Number(line) || 1, 1),
-        column: Math.max(Number(column) || 1, 1),
+        from: Math.max(Number(from) || 1, 1),
+        to: Math.max(Number(to) || Math.max(Number(from) || 1, 1), Math.max(Number(from) || 1, 1)),
         offset: Math.max(Number(offset) || 0, 0),
         at: new Date().toISOString()
       };
 
-      const map = getDocumentCursorMap(safeDocumentId, true);
-      map.set(socket.id, payload);
+      socket.data.cursorSeq = payload.seq;
 
-      io.emit("cursor:moved", payload);
+      if (previous) {
+        const prevSeq = Math.max(Number(previous.seq) || 0, 0);
+        if (payload.seq <= prevSeq) {
+          return;
+        }
+      }
+      map.set(String(user.id), payload);
+
+      socket.to(roomForDocument(safeDocumentId)).emit("cursor:moved", payload);
+      socket.to(roomForDocument(safeDocumentId)).emit("cursor:update", payload);
     });
 
     socket.on("cursor:leave", ({ documentId } = {}) => {
@@ -197,15 +230,17 @@ export function attachCursorSocket(httpServer, env) {
         return;
       }
 
-      clearCursor(safeDocumentId, socket.id);
+      const removed = clearCursor(safeDocumentId, user.id, socket.id);
       socket.leave(roomForDocument(safeDocumentId));
       socket.data.documentId = null;
 
-      io.emit("cursor:left", {
-        documentId: safeDocumentId,
-        userId: user.id,
-        cursorId: socket.id
-      });
+      if (removed) {
+        io.to(roomForDocument(safeDocumentId)).emit("cursor:left", {
+          documentId: safeDocumentId,
+          userId: user.id,
+          cursorId: socket.id
+        });
+      }
     });
 
     socket.on("disconnect", () => {
@@ -216,12 +251,14 @@ export function attachCursorSocket(httpServer, env) {
         return;
       }
 
-      clearCursor(documentId, socket.id);
-      io.emit("cursor:left", {
-        documentId: String(documentId),
-        userId: user.id,
-        cursorId: socket.id
-      });
+      const removed = clearCursor(documentId, user.id, socket.id);
+      if (removed) {
+        io.to(roomForDocument(documentId)).emit("cursor:left", {
+          documentId: String(documentId),
+          userId: user.id,
+          cursorId: socket.id
+        });
+      }
     });
   });
 

@@ -27,7 +27,7 @@ export default function SettingsPage() {
         <div className="settings-row">
           <div>
             <p className="settings-label">Theme</p>
-            <p className="list-meta">Choose between light and dark mode.</p>
+            <p className="list-meta">Choose from light, dark, or curated color presets.</p>
           </div>
           <ThemeToggle inline />
         </div>

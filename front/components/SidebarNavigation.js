@@ -33,11 +33,29 @@ function DocumentsIcon() {
   );
 }
 
+function DiscoverIcon() {
+  return (
+    <Icon>
+      <circle cx="11" cy="11" r="5" />
+      <path d="m15 15 5 5" />
+    </Icon>
+  );
+}
+
 function UserIcon() {
   return (
     <Icon>
       <circle cx="12" cy="8" r="3.2" />
       <path d="M5.5 19c1.3-3 3.5-4.5 6.5-4.5S17.2 16 18.5 19" />
+    </Icon>
+  );
+}
+
+function InviteIcon() {
+  return (
+    <Icon>
+      <path d="M4 7h16v10H4z" />
+      <path d="m4 8 8 5 8-5" />
     </Icon>
   );
 }
@@ -88,6 +106,10 @@ function isDashboardPath(pathname) {
 
 function isDocumentsPath(pathname) {
   return pathname === "/documents" || pathname.startsWith("/doc/");
+}
+
+function isDiscoverPath(pathname) {
+  return pathname === "/discover";
 }
 
 export default function SidebarNavigation({
@@ -241,6 +263,19 @@ export default function SidebarNavigation({
           </Link>
 
           <Link
+            href="/discover"
+            className={isDiscoverPath(pathname) ? "nav-link active" : "nav-link"}
+            aria-label="Discover"
+            title="Discover"
+            onClick={onNavigate}
+          >
+            <span className="nav-icon" aria-hidden="true">
+              <DiscoverIcon />
+            </span>
+            {!collapsed ? <span className="nav-label">Discover</span> : null}
+          </Link>
+
+          <Link
             href="/profile"
             className={pathname === "/profile" ? "nav-link active" : "nav-link"}
             aria-label="Profile"
@@ -251,6 +286,19 @@ export default function SidebarNavigation({
               <UserIcon />
             </span>
             {!collapsed ? <span className="nav-label">Profile</span> : null}
+          </Link>
+
+          <Link
+            href="/invitations"
+            className={pathname === "/invitations" ? "nav-link active" : "nav-link"}
+            aria-label="Invitations"
+            title="Invitations"
+            onClick={onNavigate}
+          >
+            <span className="nav-icon" aria-hidden="true">
+              <InviteIcon />
+            </span>
+            {!collapsed ? <span className="nav-label">Invitations</span> : null}
           </Link>
 
           <Link

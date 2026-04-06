@@ -1,6 +1,8 @@
 import DataLoader from "dataloader";
 import Comment from "../models/Comment.js";
 import Document from "../models/Document.js";
+import Invitation from "../models/Invitation.js";
+import Like from "../models/Like.js";
 import Section from "../models/Section.js";
 import Share from "../models/Share.js";
 import User from "../models/User.js";
@@ -30,6 +32,11 @@ function mapById(items) {
   }
 
   return mapped;
+}
+
+function parseDocumentLikeKey(key) {
+  const [documentId, userId] = String(key).split(":");
+  return { documentId, userId };
 }
 
 export function createLoaders() {
@@ -69,12 +76,37 @@ export function createLoaders() {
     return documentIds.map((documentId) => byDocumentId.get(String(documentId)) || []);
   });
 
+  const likesCountByDocumentId = new DataLoader(async (documentIds) => {
+    const counts = await Like.countByDocumentIds(documentIds);
+    const countMap = new Map(counts.map((item) => [String(item.documentId), item.total]));
+    return documentIds.map((documentId) => countMap.get(String(documentId)) || 0);
+  });
+
+  const documentLikedByUser = new DataLoader(async (keys) => {
+    const pairs = keys.map(parseDocumentLikeKey);
+    const existingPairs = await Like.findExistingPairs(pairs);
+    const existing = new Set(
+      existingPairs.map((pair) => `${String(pair.documentId)}:${String(pair.userId)}`)
+    );
+
+    return keys.map((key) => existing.has(String(key)));
+  });
+
+  const invitationsById = new DataLoader(async (ids) => {
+    const invitations = await Invitation.findByIds(ids);
+    const byId = mapById(invitations);
+    return ids.map((id) => byId.get(String(id)) || null);
+  });
+
   return {
     usersById,
     documentsById,
     sectionsById,
     sectionsByDocumentId,
     sharesByDocumentId,
-    commentsByDocumentId
+    commentsByDocumentId,
+    likesCountByDocumentId,
+    documentLikedByUser,
+    invitationsById
   };
 }

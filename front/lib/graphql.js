@@ -125,6 +125,41 @@ export const SEARCH_DOCUMENTS = gql`
   }
 `;
 
+export const SEARCH_OTHER_USERS_DOCUMENTS_BY_TITLE = gql`
+  query SearchOtherUsersDocumentsByTitle(
+    $keyword: String!
+    $mode: DocumentSearchMode
+    $limit: Int
+    $offset: Int
+    $sortBy: DocumentSortField
+    $sortDirection: SortDirection
+  ) {
+    searchOtherUsersDocumentsByTitle(
+      keyword: $keyword
+      mode: $mode
+      limit: $limit
+      offset: $offset
+      sortBy: $sortBy
+      sortDirection: $sortDirection
+    ) {
+      total
+      limit
+      offset
+      items {
+        id
+        title
+        likesCount
+        likedByMe
+        updatedAt
+        owner {
+          id
+          name
+        }
+      }
+    }
+  }
+`;
+
 export const GET_DOCUMENT = gql`
   query GetDocument($id: ID!) {
     document(id: $id) {
@@ -277,6 +312,32 @@ export const UPDATE_SECTION = gql`
   }
 `;
 
+export const APPLY_SECTION_OPERATION = gql`
+  mutation ApplySectionOperation(
+    $sectionId: ID!
+    $baseContent: String!
+    $operation: SectionContentOperationInput!
+  ) {
+    applySectionOperation(
+      sectionId: $sectionId
+      baseContent: $baseContent
+      operation: $operation
+    ) {
+      id
+      documentId
+      title
+      content
+      parentId
+      order
+      updatedAt
+      updatedBy {
+        id
+        name
+      }
+    }
+  }
+`;
+
 export const DELETE_SECTION = gql`
   mutation DeleteSection($sectionId: ID!) {
     deleteSection(sectionId: $sectionId)
@@ -361,6 +422,136 @@ export const UNSHARE_DOCUMENT = gql`
   }
 `;
 
+export const SEND_COLLABORATION_INVITE = gql`
+  mutation SendCollaborationInvite(
+    $documentId: ID!
+    $userEmail: String!
+    $permission: SharePermission
+  ) {
+    sendCollaborationInvite(
+      documentId: $documentId
+      userEmail: $userEmail
+      permission: $permission
+    ) {
+      id
+      status
+      permission
+      createdAt
+      invitee {
+        id
+        name
+        email
+      }
+      inviter {
+        id
+        name
+      }
+      document {
+        id
+        title
+      }
+    }
+  }
+`;
+
+export const GET_MY_INVITATIONS = gql`
+  query GetMyInvitations($status: InvitationStatus) {
+    myInvitations(status: $status) {
+      id
+      status
+      permission
+      createdAt
+      respondedAt
+      inviter {
+        id
+        name
+        email
+      }
+      document {
+        id
+        title
+        updatedAt
+      }
+    }
+  }
+`;
+
+export const RESPOND_TO_INVITATION = gql`
+  mutation RespondToInvitation($invitationId: ID!, $approve: Boolean!) {
+    respondToInvitation(invitationId: $invitationId, approve: $approve) {
+      id
+      status
+      permission
+      respondedAt
+      document {
+        id
+        title
+      }
+    }
+  }
+`;
+
+export const GET_MY_NOTIFICATIONS = gql`
+  query GetMyNotifications($limit: Int, $offset: Int, $unreadOnly: Boolean) {
+    myNotifications(limit: $limit, offset: $offset, unreadOnly: $unreadOnly) {
+      total
+      limit
+      offset
+      items {
+        id
+        type
+        title
+        message
+        isRead
+        createdAt
+        readAt
+        actor {
+          id
+          name
+        }
+        document {
+          id
+          title
+        }
+        invitation {
+          id
+          status
+        }
+      }
+    }
+  }
+`;
+
+export const MARK_NOTIFICATION_READ = gql`
+  mutation MarkNotificationRead($notificationId: ID!) {
+    markNotificationRead(notificationId: $notificationId) {
+      id
+      isRead
+      readAt
+    }
+  }
+`;
+
+export const LIKE_DOCUMENT = gql`
+  mutation LikeDocument($documentId: ID!) {
+    likeDocument(documentId: $documentId) {
+      documentId
+      likesCount
+      likedByMe
+    }
+  }
+`;
+
+export const UNLIKE_DOCUMENT = gql`
+  mutation UnlikeDocument($documentId: ID!) {
+    unlikeDocument(documentId: $documentId) {
+      documentId
+      likesCount
+      likedByMe
+    }
+  }
+`;
+
 export const UPDATE_TYPING_STATUS = gql`
   mutation UpdateTypingStatus($documentId: ID!, $sectionId: ID, $isTyping: Boolean!) {
     updateTypingStatus(documentId: $documentId, sectionId: $sectionId, isTyping: $isTyping) {
@@ -397,6 +588,31 @@ export const UPDATE_PRESENCE = gql`
 export const LEAVE_DOCUMENT = gql`
   mutation LeaveDocument($documentId: ID!) {
     leaveDocument(documentId: $documentId)
+  }
+`;
+
+export const USER_NOTIFICATION_RECEIVED = gql`
+  subscription UserNotificationReceived {
+    userNotificationReceived {
+      id
+      type
+      title
+      message
+      isRead
+      createdAt
+      actor {
+        id
+        name
+      }
+      document {
+        id
+        title
+      }
+      invitation {
+        id
+        status
+      }
+    }
   }
 `;
 

@@ -17,6 +17,38 @@ export const typeDefs = `#graphql
     DESC
   }
 
+  enum DocumentSearchMode {
+    TITLE
+    CONTENT
+  }
+
+  enum InvitationStatus {
+    PENDING
+    APPROVED
+    REJECTED
+  }
+
+  enum NotificationType {
+    DOCUMENT_EDITED
+    DOCUMENT_LIKED
+    INVITE_RECEIVED
+    INVITE_APPROVED
+    INVITE_REJECTED
+  }
+
+  enum SectionOperationType {
+    INSERT
+    DELETE
+    REPLACE
+  }
+
+  input SectionContentOperationInput {
+    type: SectionOperationType!
+    position: Int!
+    deleteCount: Int
+    text: String
+  }
+
   type User {
     id: ID!
     name: String!
@@ -75,6 +107,62 @@ export const typeDefs = `#graphql
     updatedAt: DateTime!
   }
 
+  type DiscoverDocument {
+    id: ID!
+    title: String!
+    owner: User!
+    likesCount: Int!
+    likedByMe: Boolean!
+    createdAt: DateTime!
+    updatedAt: DateTime!
+  }
+
+  type DiscoverDocumentPage {
+    items: [DiscoverDocument!]!
+    total: Int!
+    limit: Int!
+    offset: Int!
+  }
+
+  type DocumentLikeState {
+    documentId: ID!
+    likesCount: Int!
+    likedByMe: Boolean!
+  }
+
+  type CollaborationInvitation {
+    id: ID!
+    document: Document!
+    inviter: User!
+    invitee: User!
+    permission: SharePermission!
+    status: InvitationStatus!
+    createdAt: DateTime!
+    updatedAt: DateTime!
+    respondedAt: DateTime
+  }
+
+  type UserNotification {
+    id: ID!
+    recipient: User!
+    actor: User
+    type: NotificationType!
+    title: String!
+    message: String!
+    document: Document
+    invitation: CollaborationInvitation
+    isRead: Boolean!
+    createdAt: DateTime!
+    readAt: DateTime
+  }
+
+  type NotificationPage {
+    items: [UserNotification!]!
+    total: Int!
+    limit: Int!
+    offset: Int!
+  }
+
   type Comment {
     id: ID!
     text: String!
@@ -128,10 +216,24 @@ export const typeDefs = `#graphql
       sortBy: DocumentSortField = UPDATED_AT
       sortDirection: SortDirection = DESC
     ): DocumentPage!
+    searchOtherUsersDocumentsByTitle(
+      keyword: String!
+      mode: DocumentSearchMode = TITLE
+      limit: Int = 20
+      offset: Int = 0
+      sortBy: DocumentSortField = UPDATED_AT
+      sortDirection: SortDirection = DESC
+    ): DiscoverDocumentPage!
     getSections(documentId: ID!): [Section!]!
     getVersions(documentId: ID!): [Version!]!
     commentsBySection(sectionId: ID!): [Comment!]!
     documentPresence(documentId: ID!): [Presence!]!
+    myInvitations(status: InvitationStatus): [CollaborationInvitation!]!
+    myNotifications(
+      limit: Int = 20
+      offset: Int = 0
+      unreadOnly: Boolean = false
+    ): NotificationPage!
   }
 
   type Mutation {
@@ -145,6 +247,11 @@ export const typeDefs = `#graphql
 
     createSection(documentId: ID!, title: String!, parentId: ID): Section!
     updateSection(sectionId: ID!, title: String, content: String): Section!
+    applySectionOperation(
+      sectionId: ID!
+      baseContent: String!
+      operation: SectionContentOperationInput!
+    ): Section!
     deleteSection(sectionId: ID!): Boolean!
     reorderSection(sectionId: ID!, order: Int!): Section!
 
@@ -154,6 +261,15 @@ export const typeDefs = `#graphql
     addComment(sectionId: ID!, content: String!): Comment!
     shareDocument(documentId: ID!, userEmail: String!, permission: SharePermission = EDIT): Share!
     unshareDocument(documentId: ID!, userEmail: String!): Boolean!
+    sendCollaborationInvite(
+      documentId: ID!
+      userEmail: String!
+      permission: SharePermission = EDIT
+    ): CollaborationInvitation!
+    respondToInvitation(invitationId: ID!, approve: Boolean!): CollaborationInvitation!
+    markNotificationRead(notificationId: ID!): UserNotification!
+    likeDocument(documentId: ID!): DocumentLikeState!
+    unlikeDocument(documentId: ID!): DocumentLikeState!
 
     updateTypingStatus(documentId: ID!, sectionId: ID, isTyping: Boolean!): TypingEvent!
     updatePresence(documentId: ID!, sectionId: ID): [Presence!]!
@@ -165,5 +281,6 @@ export const typeDefs = `#graphql
     commentAdded(sectionId: ID!): Comment!
     userTyping(documentId: ID!): TypingEvent!
     userPresenceChanged(documentId: ID!): [Presence!]!
+    userNotificationReceived: UserNotification!
   }
 `;

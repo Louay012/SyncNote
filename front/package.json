@@ -8,6 +8,11 @@
     "start": "next start -p 3000"
   },
   "dependencies": {
+    "@tiptap/extension-color": "^2.10.4",
+    "@tiptap/extension-text-style": "^2.10.4",
+    "@tiptap/extension-underline": "^2.10.4",
+    "@tiptap/react": "^2.10.4",
+    "@tiptap/starter-kit": "^2.10.4",
     "@apollo/client": "^3.12.7",
     "graphql": "^16.9.0",
     "graphql-ws": "^5.16.2",

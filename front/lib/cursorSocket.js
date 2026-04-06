@@ -28,7 +28,7 @@ function resolveCursorUrl() {
 export function createCursorSocket(token) {
   return io(resolveCursorUrl(), {
     path: CURSOR_PATH,
-    transports: ["polling", "websocket"],
+    transports: ["polling"],
     upgrade: false,
     forceNew: true,
     auth: {

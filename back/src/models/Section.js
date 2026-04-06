@@ -2,9 +2,14 @@ import { query } from "../db/postgres.js";
 import { mapSection } from "./_shared.js";
 
 const baseSelect = `
-  SELECT id, document_id, title, content, parent_id, order_index, type, created_at, updated_at
+  SELECT id, document_id, title, content, content_doc, parent_id, order_index, type, created_at, updated_at
   FROM sections
 `;
+
+const EMPTY_DOC = {
+  type: "doc",
+  content: [{ type: "paragraph", content: [] }]
+};
 
 function normalizeTitle(title) {
   const value = String(title || "").trim();
@@ -19,12 +24,87 @@ function normalizeTitle(title) {
   return value;
 }
 
-function normalizeContent(content) {
-  const value = String(content ?? "");
-  if (value.length > 100_000) {
+function normalizeLegacyText(value) {
+  const text = String(value ?? "");
+  if (text.length > 100_000) {
     throw new Error("Section content is too long");
   }
-  return value;
+  return text;
+}
+
+function isDocNode(value) {
+  return (
+    value &&
+    typeof value === "object" &&
+    value.type === "doc" &&
+    Array.isArray(value.content)
+  );
+}
+
+function legacyTextToDoc(value) {
+  const lines = String(value ?? "").split("\n");
+  return {
+    type: "doc",
+    content: lines.map((line) => ({
+      type: "paragraph",
+      content: line ? [{ type: "text", text: line }] : []
+    }))
+  };
+}
+
+function docToLegacyText(doc) {
+  if (!isDocNode(doc)) {
+    return "";
+  }
+
+  const lines = (doc.content || []).map((paragraph) => {
+    if (!paragraph || paragraph.type !== "paragraph") {
+      return "";
+    }
+
+    const content = Array.isArray(paragraph.content) ? paragraph.content : [];
+    return content.map((node) => String(node?.text || "")).join("");
+  });
+
+  return normalizeLegacyText(lines.join("\n"));
+}
+
+function normalizeRichContent(content) {
+  if (typeof content === "object" && content !== null) {
+    if (!isDocNode(content)) {
+      throw new Error("Section content must be a valid rich text document");
+    }
+
+    return {
+      contentDoc: content,
+      contentText: docToLegacyText(content)
+    };
+  }
+
+  const value = String(content ?? "");
+  if (!value.trim()) {
+    return {
+      contentDoc: EMPTY_DOC,
+      contentText: ""
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    if (isDocNode(parsed)) {
+      return {
+        contentDoc: parsed,
+        contentText: docToLegacyText(parsed)
+      };
+    }
+  } catch {
+    // Plain text fallback.
+  }
+
+  return {
+    contentDoc: legacyTextToDoc(value),
+    contentText: normalizeLegacyText(value)
+  };
 }
 
 function normalizeOrder(order) {
@@ -59,13 +139,15 @@ const Section = {
     );
 
     const total = Number(countResult.rows[0]?.total || 0);
+    const normalized = normalizeRichContent(initialContent);
+
     if (total === 0) {
       await query(
         `
-          INSERT INTO sections(document_id, title, content, parent_id, order_index, type)
-          VALUES ($1, 'Overview', $2, NULL, 0, 'notes')
+          INSERT INTO sections(document_id, title, content, content_doc, parent_id, order_index, type)
+          VALUES ($1, 'Overview', $2, $3::jsonb, NULL, 0, 'notes')
         `,
-        [documentId, normalizeContent(initialContent)]
+        [documentId, normalized.contentText, normalized.contentDoc]
       );
     }
 
@@ -141,7 +223,7 @@ const Section = {
 
   async create({ documentId, title, parentId = null, content = "" }) {
     const safeTitle = normalizeTitle(title);
-    const safeContent = normalizeContent(content);
+    const normalizedContent = normalizeRichContent(content);
     let safeParentId = parentId;
 
     if (safeParentId !== null && safeParentId !== undefined) {
@@ -177,11 +259,18 @@ const Section = {
 
     const { rows } = await query(
       `
-        INSERT INTO sections(document_id, title, content, parent_id, order_index)
-        VALUES ($1, $2, $3, $4, $5)
-        RETURNING id, document_id, title, content, parent_id, order_index, type, created_at, updated_at
+        INSERT INTO sections(document_id, title, content, content_doc, parent_id, order_index)
+        VALUES ($1, $2, $3, $4::jsonb, $5, $6)
+        RETURNING id, document_id, title, content, content_doc, parent_id, order_index, type, created_at, updated_at
       `,
-      [documentId, safeTitle, safeContent, safeParentId, nextOrder]
+      [
+        documentId,
+        safeTitle,
+        normalizedContent.contentText,
+        normalizedContent.contentDoc,
+        safeParentId,
+        nextOrder
+      ]
     );
 
     return mapSection(rows[0]);
@@ -197,8 +286,11 @@ const Section = {
     }
 
     if (Object.hasOwn(updates, "content")) {
-      values.push(normalizeContent(updates.content));
+      const normalizedContent = normalizeRichContent(updates.content);
+      values.push(normalizedContent.contentText);
       sets.push(`content = $${values.length}`);
+      values.push(normalizedContent.contentDoc);
+      sets.push(`content_doc = $${values.length}::jsonb`);
     }
 
     if (Object.hasOwn(updates, "order")) {
@@ -217,7 +309,7 @@ const Section = {
         UPDATE sections
         SET ${sets.join(", ")}, updated_at = NOW()
         WHERE id = $${values.length}
-        RETURNING id, document_id, title, content, parent_id, order_index, type, created_at, updated_at
+        RETURNING id, document_id, title, content, content_doc, parent_id, order_index, type, created_at, updated_at
       `,
       values
     );
@@ -238,7 +330,7 @@ const Section = {
       `
         DELETE FROM sections
         WHERE id = $1
-        RETURNING id, document_id, title, content, parent_id, order_index, type, created_at, updated_at
+        RETURNING id, document_id, title, content, content_doc, parent_id, order_index, type, created_at, updated_at
       `,
       [id]
     );

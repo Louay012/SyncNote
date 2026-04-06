@@ -17,7 +17,7 @@ import {
   GET_DOCUMENT,
   GET_MY_DOCUMENTS,
   GET_SHARED_DOCUMENTS,
-  SHARE_DOCUMENT,
+  SEND_COLLABORATION_INVITE,
   UNSHARE_DOCUMENT,
   SEARCH_DOCUMENTS
 } from "@/lib/graphql";
@@ -113,7 +113,7 @@ function DocumentsContent({ token, onLogout }) {
     fetchPolicy: "cache-and-network"
   });
 
-  const [shareDocument, { loading: sharingDocument }] = useMutation(SHARE_DOCUMENT);
+  const [sendInvite, { loading: sharingDocument }] = useMutation(SEND_COLLABORATION_INVITE);
   const [unshareDocument, { loading: unsharingDocument }] = useMutation(UNSHARE_DOCUMENT);
 
   const myDocs = searching
@@ -169,7 +169,7 @@ function DocumentsContent({ token, onLogout }) {
 
     setShareError("");
     try {
-      await shareDocument({
+      await sendInvite({
         variables: {
           documentId: shareDocumentId,
           userEmail: collabEmail.trim(),
@@ -302,7 +302,7 @@ function DocumentsContent({ token, onLogout }) {
                 <option value="VIEW">VIEW</option>
               </select>
               <button type="submit" disabled={shareBusy}>
-                {sharingDocument ? "Sharing..." : "Share"}
+                {sharingDocument ? "Sending..." : "Send Invite"}
               </button>
             </form>
 

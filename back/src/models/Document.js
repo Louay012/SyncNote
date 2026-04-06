@@ -112,6 +112,20 @@ const Document = {
     });
   },
 
+  async searchOtherUsersByTitle(userId, keyword, options = {}) {
+    const mode = String(options.mode || "TITLE");
+    const modeWhereSql =
+      mode === "CONTENT"
+        ? "EXISTS (SELECT 1 FROM sections sec WHERE sec.document_id = d.id AND sec.content ILIKE $2)"
+        : "d.title ILIKE $2";
+
+    return runPagedDocumentQuery({
+      whereSql: `d.owner_id <> $1 AND (${modeWhereSql})`,
+      params: [userId, `%${keyword}%`],
+      ...options
+    });
+  },
+
   async create({ title, content = "", owner }) {
     const { rows } = await query(
       `

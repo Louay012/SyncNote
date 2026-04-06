@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS sections (
   document_id BIGINT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
   title TEXT NOT NULL DEFAULT 'Section',
   content TEXT NOT NULL DEFAULT '',
+  content_doc JSONB,
   parent_id BIGINT REFERENCES sections(id) ON DELETE CASCADE,
   order_index INTEGER NOT NULL DEFAULT 0,
   -- Deprecated: retained only for compatibility with older snapshots/migrations.
@@ -70,11 +71,115 @@ CREATE TABLE IF NOT EXISTS shares (
 CREATE INDEX IF NOT EXISTS shares_user_id_idx ON shares(user_id);
 CREATE INDEX IF NOT EXISTS shares_document_id_idx ON shares(document_id);
 
+CREATE TABLE IF NOT EXISTS document_likes (
+  document_id BIGINT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (document_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS document_likes_user_id_idx ON document_likes(user_id);
+CREATE INDEX IF NOT EXISTS document_likes_document_id_idx ON document_likes(document_id);
+
+CREATE TABLE IF NOT EXISTS collaboration_invitations (
+  id BIGSERIAL PRIMARY KEY,
+  document_id BIGINT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  inviter_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  invitee_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  permission TEXT NOT NULL DEFAULT 'EDIT',
+  status TEXT NOT NULL DEFAULT 'PENDING',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  responded_at TIMESTAMPTZ,
+  CONSTRAINT collaboration_invites_permission_check CHECK (permission IN ('VIEW', 'EDIT')),
+  CONSTRAINT collaboration_invites_status_check CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED')),
+  CONSTRAINT collaboration_invites_document_user_unique UNIQUE (document_id, invitee_id)
+);
+
+CREATE INDEX IF NOT EXISTS collaboration_invitations_invitee_id_idx ON collaboration_invitations(invitee_id);
+CREATE INDEX IF NOT EXISTS collaboration_invitations_document_id_idx ON collaboration_invitations(document_id);
+
+CREATE TABLE IF NOT EXISTS user_notifications (
+  id BIGSERIAL PRIMARY KEY,
+  recipient_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  actor_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  type TEXT NOT NULL,
+  title TEXT NOT NULL,
+  message TEXT NOT NULL DEFAULT '',
+  document_id BIGINT REFERENCES documents(id) ON DELETE CASCADE,
+  invitation_id BIGINT REFERENCES collaboration_invitations(id) ON DELETE CASCADE,
+  is_read BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  read_at TIMESTAMPTZ,
+  CONSTRAINT user_notifications_type_check CHECK (
+    type IN ('DOCUMENT_EDITED', 'DOCUMENT_LIKED', 'INVITE_RECEIVED', 'INVITE_APPROVED', 'INVITE_REJECTED')
+  )
+);
+
+CREATE INDEX IF NOT EXISTS user_notifications_recipient_id_idx ON user_notifications(recipient_id);
+CREATE INDEX IF NOT EXISTS user_notifications_recipient_unread_idx ON user_notifications(recipient_id, is_read, created_at DESC);
+
+ALTER TABLE user_notifications DROP CONSTRAINT IF EXISTS user_notifications_type_check;
+ALTER TABLE user_notifications
+ADD CONSTRAINT user_notifications_type_check CHECK (
+  type IN ('DOCUMENT_EDITED', 'DOCUMENT_LIKED', 'INVITE_RECEIVED', 'INVITE_APPROVED', 'INVITE_REJECTED')
+);
+
 -- Dynamic section migration and compatibility layer.
 ALTER TABLE sections ADD COLUMN IF NOT EXISTS title TEXT;
 ALTER TABLE sections ADD COLUMN IF NOT EXISTS parent_id BIGINT;
 ALTER TABLE sections ADD COLUMN IF NOT EXISTS order_index INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE sections ADD COLUMN IF NOT EXISTS type TEXT;
+ALTER TABLE sections ADD COLUMN IF NOT EXISTS content_doc JSONB;
+
+CREATE OR REPLACE FUNCTION try_parse_jsonb(input_text TEXT)
+RETURNS JSONB
+LANGUAGE plpgsql
+IMMUTABLE
+AS $$
+BEGIN
+  RETURN input_text::jsonb;
+EXCEPTION
+  WHEN others THEN
+    RETURN NULL;
+END;
+$$;
+
+ALTER TABLE sections
+ALTER COLUMN content_doc
+SET DEFAULT '{"type":"doc","content":[{"type":"paragraph","content":[]}]}'::jsonb;
+
+UPDATE sections s
+SET content_doc = COALESCE(
+  CASE
+    WHEN try_parse_jsonb(s.content) IS NOT NULL
+      AND try_parse_jsonb(s.content)->>'type' = 'doc'
+      AND jsonb_typeof(try_parse_jsonb(s.content)->'content') = 'array'
+    THEN try_parse_jsonb(s.content)
+    ELSE NULL
+  END,
+  jsonb_build_object(
+    'type', 'doc',
+    'content', COALESCE(
+      (
+        SELECT jsonb_agg(
+          jsonb_build_object(
+            'type', 'paragraph',
+            'content', jsonb_build_array(
+              jsonb_build_object('type', 'text', 'text', line)
+            )
+          )
+        )
+        FROM unnest(regexp_split_to_array(COALESCE(s.content, ''), E'\\n')) AS line
+      ),
+      '[]'::jsonb
+    )
+  )
+)
+WHERE s.content_doc IS NULL;
+
+ALTER TABLE sections ALTER COLUMN content_doc SET NOT NULL;
+CREATE INDEX IF NOT EXISTS sections_content_doc_idx ON sections USING GIN (content_doc);
 
 ALTER TABLE sections DROP CONSTRAINT IF EXISTS sections_type_check;
 ALTER TABLE sections DROP CONSTRAINT IF EXISTS sections_document_type_unique;
@@ -114,11 +219,31 @@ CREATE INDEX IF NOT EXISTS sections_document_parent_order_idx
 ON sections(document_id, parent_id, order_index);
 
 -- Ensure each document has at least one root section.
-INSERT INTO sections(document_id, title, content, parent_id, order_index, type)
+INSERT INTO sections(document_id, title, content, content_doc, parent_id, order_index, type)
 SELECT
   d.id,
   'Overview',
   COALESCE(d.content, ''),
+  COALESCE(
+    CASE
+      WHEN try_parse_jsonb(d.content) IS NOT NULL
+        AND try_parse_jsonb(d.content)->>'type' = 'doc'
+        AND jsonb_typeof(try_parse_jsonb(d.content)->'content') = 'array'
+      THEN try_parse_jsonb(d.content)
+      ELSE NULL
+    END,
+    jsonb_build_object(
+      'type', 'doc',
+      'content', jsonb_build_array(
+        jsonb_build_object(
+          'type', 'paragraph',
+          'content', jsonb_build_array(
+            jsonb_build_object('type', 'text', 'text', COALESCE(d.content, ''))
+          )
+        )
+      )
+    )
+  ),
   NULL,
   0,
   'notes'

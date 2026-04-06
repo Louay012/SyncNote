@@ -2,6 +2,9 @@ import { GraphQLScalarType, Kind } from "graphql";
 import { withFilter } from "graphql-subscriptions";
 import Comment from "../models/Comment.js";
 import Document from "../models/Document.js";
+import Invitation from "../models/Invitation.js";
+import Like from "../models/Like.js";
+import Notification from "../models/Notification.js";
 import Section from "../models/Section.js";
 import Share from "../models/Share.js";
 import User from "../models/User.js";
@@ -102,6 +105,29 @@ function validateSectionContent(content) {
   return normalized;
 }
 
+function applyStringOperation(baseContent, operationInput = {}) {
+  const content = String(baseContent ?? "");
+  const type = String(operationInput.type || "").toUpperCase();
+  const position = Math.max(Number(operationInput.position) || 0, 0);
+  const safePosition = Math.min(position, content.length);
+  const deleteCount = Math.max(Number(operationInput.deleteCount) || 0, 0);
+  const text = String(operationInput.text ?? "");
+
+  if (type === "INSERT") {
+    return `${content.slice(0, safePosition)}${text}${content.slice(safePosition)}`;
+  }
+
+  if (type === "DELETE") {
+    return `${content.slice(0, safePosition)}${content.slice(safePosition + deleteCount)}`;
+  }
+
+  if (type === "REPLACE") {
+    return `${content.slice(0, safePosition)}${text}${content.slice(safePosition + deleteCount)}`;
+  }
+
+  throw new Error("Unsupported section operation type");
+}
+
 function parseVersionSnapshot(snapshotValue) {
   if (!snapshotValue) {
     return {};
@@ -157,6 +183,99 @@ function withActor(section, userId) {
     ...section,
     updatedById: String(userId)
   };
+}
+
+async function getDocumentLikeState(contextValue, documentId, userId) {
+  const safeDocumentId = String(documentId);
+  const safeUserId = userId ? String(userId) : null;
+
+  const likesCount = await contextValue.loaders.likesCountByDocumentId.load(
+    safeDocumentId
+  );
+
+  if (!safeUserId) {
+    return {
+      documentId: safeDocumentId,
+      likesCount,
+      likedByMe: false
+    };
+  }
+
+  const likedByMe = await contextValue.loaders.documentLikedByUser.load(
+    `${safeDocumentId}:${safeUserId}`
+  );
+
+  return {
+    documentId: safeDocumentId,
+    likesCount,
+    likedByMe: Boolean(likedByMe)
+  };
+}
+
+async function createUserNotification({
+  recipientId,
+  actorId,
+  type,
+  title,
+  message,
+  documentId = null,
+  invitationId = null
+}) {
+  const notification = await Notification.create({
+    recipientId,
+    actorId,
+    type,
+    title,
+    message,
+    documentId,
+    invitationId
+  });
+
+  await pubsub.publish(EVENTS.USER_NOTIFICATION_RECEIVED, {
+    userNotificationReceived: notification,
+    recipientId: String(recipientId)
+  });
+
+  return notification;
+}
+
+async function notifyDocumentActivity({ documentId, actorUser, sectionTitle }) {
+  const [document, shares] = await Promise.all([
+    Document.findById(documentId),
+    Share.find({ document: documentId })
+  ]);
+
+  if (!document) {
+    return;
+  }
+
+  const recipients = new Set([
+    String(document.owner),
+    ...shares.map((share) => String(share.user))
+  ]);
+
+  recipients.delete(String(actorUser.id));
+  if (!recipients.size) {
+    return;
+  }
+
+  const title = `${actorUser.name} edited ${document.title}`;
+  const message = sectionTitle
+    ? `Updated section: ${sectionTitle}`
+    : "Document content was updated";
+
+  await Promise.all(
+    Array.from(recipients).map((recipientId) =>
+      createUserNotification({
+        recipientId,
+        actorId: actorUser.id,
+        type: "DOCUMENT_EDITED",
+        title,
+        message,
+        documentId: document.id
+      })
+    )
+  );
 }
 
 export const resolvers = {
@@ -217,6 +336,27 @@ export const resolvers = {
       );
     },
 
+    searchOtherUsersDocumentsByTitle: async (
+      _,
+      { keyword, mode, ...args },
+      contextValue
+    ) => {
+      const user = requireAuth(contextValue);
+      const normalizedKeyword = String(keyword || "").trim();
+      if (normalizedKeyword.length < 2) {
+        throw new Error("Keyword must have at least 2 characters");
+      }
+
+      return Document.searchOtherUsersByTitle(
+        user.id,
+        normalizedKeyword,
+        {
+          ...normalizeDocumentListArgs(args),
+          mode: mode || "TITLE"
+        }
+      );
+    },
+
     getSections: async (_, { documentId }, contextValue) => {
       const user = requireAuth(contextValue);
       ensureObjectId(documentId, "document id");
@@ -250,6 +390,18 @@ export const resolvers = {
       ensureObjectId(documentId, "document id");
       await ensureDocumentAccess(user.id, documentId);
       return getPresence(documentId);
+    },
+
+    myInvitations: async (_, { status }, contextValue) => {
+      const user = requireAuth(contextValue);
+      return Invitation.findByInvitee(user.id, {
+        status: status || undefined
+      });
+    },
+
+    myNotifications: async (_, args, contextValue) => {
+      const user = requireAuth(contextValue);
+      return Notification.findByRecipient(user.id, args || {});
     }
   },
 
@@ -458,6 +610,73 @@ export const resolvers = {
         })
       ]);
 
+      await notifyDocumentActivity({
+        documentId: updatedSection.documentId,
+        actorUser: user,
+        sectionTitle: updatedSection.title
+      });
+
+      return payload;
+    },
+
+    applySectionOperation: async (
+      _,
+      { sectionId, baseContent, operation },
+      contextValue
+    ) => {
+      const user = requireAuth(contextValue);
+      ensureObjectId(sectionId, "section id");
+      await ensureSectionEditAccess(user.id, sectionId);
+
+      const currentSection = await Section.findById(sectionId);
+      if (!currentSection) {
+        throw new Error("Section not found");
+      }
+
+      const normalizedBaseContent = validateSectionContent(baseContent);
+      if (String(currentSection.content || "") !== normalizedBaseContent) {
+        throw new Error("Section content is out of date");
+      }
+
+      const nextContent = validateSectionContent(
+        applyStringOperation(normalizedBaseContent, operation)
+      );
+
+      const updatedSection = await Section.updateById(sectionId, {
+        content: nextContent
+      });
+
+      if (!updatedSection) {
+        throw new Error("Section not found");
+      }
+
+      await syncLegacyDocumentContent(updatedSection.documentId);
+
+      const payload = withActor(updatedSection, user.id);
+      const presenceState = touchPresence({
+        documentId: updatedSection.documentId,
+        user,
+        sectionId: updatedSection.id,
+        sectionTitle: updatedSection.title
+      });
+
+      await Promise.all([
+        pubsub.publish(EVENTS.SECTION_UPDATED, {
+          sectionUpdated: payload,
+          documentId: updatedSection.documentId
+        }),
+        pubsub.publish(EVENTS.USER_PRESENCE_CHANGED, {
+          userPresenceChanged: presenceState,
+          documentId: updatedSection.documentId
+        })
+      ]);
+
+      await notifyDocumentActivity({
+        documentId: updatedSection.documentId,
+        actorUser: user,
+        sectionTitle: updatedSection.title
+      });
+
       return payload;
     },
 
@@ -639,6 +858,178 @@ export const resolvers = {
       return Share.deleteOne({ document: documentId, user: collaborator.id });
     },
 
+    sendCollaborationInvite: async (
+      _,
+      { documentId, userEmail, permission = "EDIT" },
+      contextValue
+    ) => {
+      const user = requireAuth(contextValue);
+      ensureObjectId(documentId, "document id");
+      await ensureDocumentOwner(user.id, documentId);
+
+      const normalizedEmail = normalizeEmail(userEmail);
+      requireNonEmpty(normalizedEmail, "User email");
+
+      const invitee = await User.findOne({ email: normalizedEmail });
+      if (!invitee) {
+        throw new Error("Collaborator not found");
+      }
+
+      if (String(invitee.id) === String(user.id)) {
+        throw new Error("Owner cannot invite themselves");
+      }
+
+      if (![
+        "VIEW",
+        "EDIT"
+      ].includes(permission)) {
+        throw new Error("Permission must be VIEW or EDIT");
+      }
+
+      const existingShare = await Share.findOne({
+        document: documentId,
+        user: invitee.id
+      });
+
+      if (existingShare) {
+        throw new Error("User is already a collaborator");
+      }
+
+      const invitation = await Invitation.upsertPending({
+        documentId,
+        inviterId: user.id,
+        inviteeId: invitee.id,
+        permission
+      });
+
+      const document = await Document.findById(documentId);
+
+      await createUserNotification({
+        recipientId: invitee.id,
+        actorId: user.id,
+        type: "INVITE_RECEIVED",
+        title: `${user.name} invited you to collaborate`,
+        message: `Document: ${document?.title || "Untitled"}`,
+        documentId,
+        invitationId: invitation.id
+      });
+
+      return invitation;
+    },
+
+    respondToInvitation: async (_, { invitationId, approve }, contextValue) => {
+      const user = requireAuth(contextValue);
+      ensureObjectId(invitationId, "invitation id");
+
+      const updated = await Invitation.respond({
+        invitationId,
+        inviteeId: user.id,
+        status: approve ? "APPROVED" : "REJECTED"
+      });
+
+      if (!updated) {
+        throw new Error("Invitation not found or already handled");
+      }
+
+      if (approve) {
+        await Share.findOneAndUpdate(
+          { document: updated.documentId, user: updated.inviteeId },
+          { permission: updated.permission },
+          { new: true, upsert: true }
+        );
+      }
+
+      const document = await Document.findById(updated.documentId);
+
+      await createUserNotification({
+        recipientId: updated.inviterId,
+        actorId: user.id,
+        type: approve ? "INVITE_APPROVED" : "INVITE_REJECTED",
+        title: approve
+          ? `${user.name} accepted your invitation`
+          : `${user.name} declined your invitation`,
+        message: `Document: ${document?.title || "Untitled"}`,
+        documentId: updated.documentId,
+        invitationId: updated.id
+      });
+
+      return updated;
+    },
+
+    markNotificationRead: async (_, { notificationId }, contextValue) => {
+      const user = requireAuth(contextValue);
+      ensureObjectId(notificationId, "notification id");
+
+      const updated = await Notification.markRead(notificationId, user.id);
+      if (!updated) {
+        throw new Error("Notification not found");
+      }
+
+      return updated;
+    },
+
+    likeDocument: async (_, { documentId }, contextValue) => {
+      const user = requireAuth(contextValue);
+      ensureObjectId(documentId, "document id");
+
+      const document = await Document.findById(documentId);
+      if (!document) {
+        throw new Error("Document not found");
+      }
+
+      if (String(document.owner) === String(user.id)) {
+        throw new Error("You cannot like your own document");
+      }
+
+      const alreadyLiked = await Like.findOne({
+        documentId,
+        userId: user.id
+      });
+
+      await Like.like(documentId, user.id);
+
+      if (!alreadyLiked) {
+        await createUserNotification({
+          recipientId: document.owner,
+          actorId: user.id,
+          type: "DOCUMENT_LIKED",
+          title: `${user.name} liked your document`,
+          message: `Document: ${document.title}`,
+          documentId: document.id
+        });
+      }
+
+      contextValue.loaders.likesCountByDocumentId.clear(String(documentId));
+      contextValue.loaders.documentLikedByUser.clear(
+        `${String(documentId)}:${String(user.id)}`
+      );
+
+      return getDocumentLikeState(contextValue, documentId, user.id);
+    },
+
+    unlikeDocument: async (_, { documentId }, contextValue) => {
+      const user = requireAuth(contextValue);
+      ensureObjectId(documentId, "document id");
+
+      const document = await Document.findById(documentId);
+      if (!document) {
+        throw new Error("Document not found");
+      }
+
+      if (String(document.owner) === String(user.id)) {
+        throw new Error("You cannot unlike your own document");
+      }
+
+      await Like.unlike(documentId, user.id);
+
+      contextValue.loaders.likesCountByDocumentId.clear(String(documentId));
+      contextValue.loaders.documentLikedByUser.clear(
+        `${String(documentId)}:${String(user.id)}`
+      );
+
+      return getDocumentLikeState(contextValue, documentId, user.id);
+    },
+
     updateTypingStatus: async (
       _,
       { documentId, sectionId, isTyping },
@@ -788,6 +1179,16 @@ export const resolvers = {
           );
         }
       )
+    },
+
+    userNotificationReceived: {
+      subscribe: withFilter(
+        () => pubsub.asyncIterator([EVENTS.USER_NOTIFICATION_RECEIVED]),
+        async ({ recipientId }, _, contextValue) => {
+          const user = requireAuth(contextValue);
+          return String(recipientId) === String(user.id);
+        }
+      )
     }
   },
 
@@ -820,6 +1221,55 @@ export const resolvers = {
 
     comments: async (doc, _, contextValue) =>
       contextValue.loaders.commentsByDocumentId.load(doc.id)
+  },
+
+  DiscoverDocument: {
+    owner: async (doc, _, contextValue) => contextValue.loaders.usersById.load(doc.owner),
+    likesCount: async (doc, _, contextValue) =>
+      contextValue.loaders.likesCountByDocumentId.load(doc.id),
+    likedByMe: async (doc, _, contextValue) => {
+      const userId = contextValue.currentUser?.id;
+      if (!userId) {
+        return false;
+      }
+
+      return contextValue.loaders.documentLikedByUser.load(
+        `${String(doc.id)}:${String(userId)}`
+      );
+    }
+  },
+
+  CollaborationInvitation: {
+    document: async (invitation, _, contextValue) =>
+      contextValue.loaders.documentsById.load(invitation.documentId),
+    inviter: async (invitation, _, contextValue) =>
+      contextValue.loaders.usersById.load(invitation.inviterId),
+    invitee: async (invitation, _, contextValue) =>
+      contextValue.loaders.usersById.load(invitation.inviteeId)
+  },
+
+  UserNotification: {
+    recipient: async (notification, _, contextValue) =>
+      contextValue.loaders.usersById.load(notification.recipientId),
+    actor: async (notification, _, contextValue) => {
+      if (!notification.actorId) {
+        return null;
+      }
+      return contextValue.loaders.usersById.load(notification.actorId);
+    },
+    document: async (notification, _, contextValue) => {
+      if (!notification.documentId) {
+        return null;
+      }
+      return contextValue.loaders.documentsById.load(notification.documentId);
+    },
+    invitation: async (notification, _, contextValue) => {
+      if (!notification.invitationId) {
+        return null;
+      }
+
+      return contextValue.loaders.invitationsById.load(notification.invitationId);
+    }
   },
 
   Section: {

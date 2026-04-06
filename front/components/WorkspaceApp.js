@@ -22,8 +22,10 @@ import {
   setStoredToken
 } from "@/lib/authToken";
 import { createCursorSocket } from "@/lib/cursorSocket";
+import { normalizeStoredRichDocString } from "@/lib/richTextDoc";
 import {
   ADD_COMMENT,
+  APPLY_SECTION_OPERATION,
   COMMENT_ADDED,
   CREATE_SECTION,
   DELETE_SECTION,
@@ -119,6 +121,63 @@ function withDocumentCursorColors(cursorsByUserId) {
   );
 }
 
+function computeStringOperation(baseContent, nextContent) {
+  const base = String(baseContent ?? "");
+  const next = String(nextContent ?? "");
+
+  if (base === next) {
+    return null;
+  }
+
+  let start = 0;
+  while (
+    start < base.length &&
+    start < next.length &&
+    base[start] === next[start]
+  ) {
+    start += 1;
+  }
+
+  let endBase = base.length - 1;
+  let endNext = next.length - 1;
+  while (
+    endBase >= start &&
+    endNext >= start &&
+    base[endBase] === next[endNext]
+  ) {
+    endBase -= 1;
+    endNext -= 1;
+  }
+
+  const removed = endBase >= start ? base.slice(start, endBase + 1) : "";
+  const inserted = endNext >= start ? next.slice(start, endNext + 1) : "";
+
+  if (removed.length > 0 && inserted.length > 0) {
+    return {
+      type: "REPLACE",
+      position: start,
+      deleteCount: removed.length,
+      text: inserted
+    };
+  }
+
+  if (inserted.length > 0) {
+    return {
+      type: "INSERT",
+      position: start,
+      deleteCount: 0,
+      text: inserted
+    };
+  }
+
+  return {
+    type: "DELETE",
+    position: start,
+    deleteCount: removed.length,
+    text: ""
+  };
+}
+
 function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
   const router = useRouter();
   const apolloClient = useApolloClient();
@@ -135,6 +194,7 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
   const [presenceUsers, setPresenceUsers] = useState([]);
   const [typingUsers, setTypingUsers] = useState({});
   const [remoteCursors, setRemoteCursors] = useState({});
+  const [selfUserId, setSelfUserId] = useState("");
   const [socketSelfCursorId, setSocketSelfCursorId] = useState("");
   const [lastSectionActor, setLastSectionActor] = useState("");
 
@@ -144,8 +204,12 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
   const saveTimerRef = useRef(null);
   const cursorTimerRef = useRef(null);
   const cursorSocketRef = useRef(null);
+  const selfUserIdRef = useRef("");
   const socketSelfCursorIdRef = useRef("");
   const lastCursorOffsetRef = useRef(null);
+  const lastRemoteCursorSeqRef = useRef({});
+  const lastRemoteCursorSourceRef = useRef({});
+  const lastSyncedSectionContentRef = useRef("");
   const selectedSectionIdRef = useRef(selectedSectionId);
   const activeSectionIdRef = useRef(null);
   const localEditRef = useRef(false);
@@ -175,6 +239,9 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
 
       cursorSocketRef.current?.disconnect();
       cursorSocketRef.current = null;
+      selfUserIdRef.current = "";
+      lastRemoteCursorSeqRef.current = {};
+      lastRemoteCursorSourceRef.current = {};
     },
     []
   );
@@ -267,6 +334,7 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
   const [updateDocument, { loading: savingTitle }] = useMutation(UPDATE_DOCUMENT);
   const [createSection, { loading: creatingSection }] = useMutation(CREATE_SECTION);
   const [updateSection, { loading: savingSection }] = useMutation(UPDATE_SECTION);
+  const [applySectionOperation] = useMutation(APPLY_SECTION_OPERATION);
   const [deleteSection, { loading: deletingSection }] = useMutation(DELETE_SECTION);
   const [reorderSection, { loading: reorderingSection }] = useMutation(REORDER_SECTION);
   const [saveVersion, { loading: savingVersion }] = useMutation(SAVE_VERSION);
@@ -324,16 +392,21 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
   useEffect(() => {
     if (!activeSection) {
       setSectionDraft("");
+      lastSyncedSectionContentRef.current = "";
       activeSectionIdRef.current = null;
       localEditRef.current = false;
+      lastCursorOffsetRef.current = null;
       return;
     }
 
     if (!localEditRef.current || activeSectionIdRef.current !== activeSection.id) {
-      setSectionDraft(activeSection.content || "");
+      const normalizedContent = normalizeStoredRichDocString(activeSection.content || "");
+      setSectionDraft(normalizedContent);
+      lastSyncedSectionContentRef.current = normalizedContent;
       setSaveState("idle");
       activeSectionIdRef.current = activeSection.id;
       localEditRef.current = false;
+      lastCursorOffsetRef.current = null;
     }
   }, [activeSection]);
 
@@ -399,22 +472,27 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
         return;
       }
 
+      const isOwnUpdate =
+        String(updatedSection.updatedBy?.id || "") === String(meData?.me?.id || "");
+
       if (updatedSection.updatedBy?.name) {
         setLastSectionActor(updatedSection.updatedBy.name);
 
-        if (String(updatedSection.updatedBy.id) !== String(meData?.me?.id || "")) {
+        if (!isOwnUpdate) {
           setNotice(`Updated by ${updatedSection.updatedBy.name} in ${updatedSection.title}`);
         }
       }
 
       if (updatedSection.id === activeSectionIdRef.current && !localEditRef.current) {
-        setSectionDraft(updatedSection.content || "");
+        setSectionDraft(normalizeStoredRichDocString(updatedSection.content || ""));
         setSaveState("saved");
       }
 
-      refetchSections();
-      refetchDoc();
-      refetchVersions();
+      if (!isOwnUpdate) {
+        refetchSections();
+        refetchDoc();
+        refetchVersions();
+      }
     }
   });
 
@@ -477,7 +555,12 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
     };
 
     const onSelf = (payload) => {
+      const userId = String(payload?.userId || "");
       const cursorId = String(payload?.cursorId || "");
+      if (userId) {
+        selfUserIdRef.current = userId;
+        setSelfUserId(userId);
+      }
       if (!cursorId) {
         return;
       }
@@ -495,26 +578,33 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
 
       const currentCursorId = String(socketSelfCursorIdRef.current || "");
       const mapped = {};
+      const nextSeqByUserId = {};
+      const nextSourceByUserId = {};
+      const currentSelfUserId = String(selfUserIdRef.current || meData?.me?.id || "");
 
       snapshot.forEach((entry) => {
-        const entryCursorId = String(entry?.cursorId || "");
-        if (!entryCursorId) {
+        const entryUserId = String(entry?.userId || "");
+        if (!entryUserId) {
           return;
         }
 
-        if (currentCursorId && entryCursorId === currentCursorId) {
+        if (currentSelfUserId && entryUserId === currentSelfUserId) {
           return;
         }
 
-        mapped[entryCursorId] = entry;
+        mapped[entryUserId] = entry;
+        nextSeqByUserId[entryUserId] = Math.max(Number(entry?.seq) || 0, 0);
+        nextSourceByUserId[entryUserId] = String(entry?.cursorId || "");
       });
 
+      lastRemoteCursorSeqRef.current = nextSeqByUserId;
+      lastRemoteCursorSourceRef.current = nextSourceByUserId;
       setRemoteCursors(mapped);
     };
 
     const onMoved = (payload) => {
-      const payloadCursorId = String(payload?.cursorId || "");
-      if (!payloadCursorId) {
+      const payloadUserId = String(payload?.userId || "");
+      if (!payloadUserId) {
         return;
       }
 
@@ -522,20 +612,39 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
         return;
       }
 
-      const currentCursorId = String(socketSelfCursorIdRef.current || "");
-      if (currentCursorId && payloadCursorId === currentCursorId) {
+      const currentSelfUserId = String(selfUserIdRef.current || meData?.me?.id || "");
+      if (currentSelfUserId && payloadUserId === currentSelfUserId) {
         return;
       }
 
+      const incomingSeq = Math.max(Number(payload?.seq) || 0, 0);
+      const incomingCursorId = String(payload?.cursorId || "");
+      const previousCursorId = String(lastRemoteCursorSourceRef.current[payloadUserId] || "");
+
+      if (incomingCursorId && previousCursorId && incomingCursorId !== previousCursorId) {
+        lastRemoteCursorSeqRef.current[payloadUserId] = 0;
+      }
+
+      const currentSeq = Math.max(
+        Number(lastRemoteCursorSeqRef.current[payloadUserId]) || 0,
+        0
+      );
+      if (incomingSeq <= currentSeq) {
+        return;
+      }
+
+      lastRemoteCursorSeqRef.current[payloadUserId] = incomingSeq;
+      lastRemoteCursorSourceRef.current[payloadUserId] = incomingCursorId;
+
       setRemoteCursors((current) => ({
         ...current,
-        [payloadCursorId]: payload
+        [payloadUserId]: payload
       }));
     };
 
     const onLeft = (payload) => {
-      const payloadCursorId = String(payload?.cursorId || "");
-      if (!payloadCursorId) {
+      const payloadUserId = String(payload?.userId || "");
+      if (!payloadUserId) {
         return;
       }
 
@@ -545,15 +654,28 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
 
       setRemoteCursors((current) => {
         const next = { ...current };
-        delete next[payloadCursorId];
+        delete next[payloadUserId];
         return next;
       });
+
+      if (lastRemoteCursorSeqRef.current[payloadUserId] !== undefined) {
+        const nextSeq = { ...lastRemoteCursorSeqRef.current };
+        delete nextSeq[payloadUserId];
+        lastRemoteCursorSeqRef.current = nextSeq;
+      }
+
+      if (lastRemoteCursorSourceRef.current[payloadUserId] !== undefined) {
+        const nextSource = { ...lastRemoteCursorSourceRef.current };
+        delete nextSource[payloadUserId];
+        lastRemoteCursorSourceRef.current = nextSource;
+      }
     };
 
     socket.on("connect", onConnect);
     socket.on("cursor:self", onSelf);
     socket.on("cursor:snapshot", onSnapshot);
     socket.on("cursor:moved", onMoved);
+    socket.on("cursor:update", onMoved);
     socket.on("cursor:left", onLeft);
     socket.connect();
 
@@ -563,14 +685,18 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
       socket.off("cursor:self", onSelf);
       socket.off("cursor:snapshot", onSnapshot);
       socket.off("cursor:moved", onMoved);
+      socket.off("cursor:update", onMoved);
       socket.off("cursor:left", onLeft);
       socket.disconnect();
+      selfUserIdRef.current = "";
       socketSelfCursorIdRef.current = "";
+      lastRemoteCursorSeqRef.current = {};
+      lastRemoteCursorSourceRef.current = {};
       if (cursorSocketRef.current === socket) {
         cursorSocketRef.current = null;
       }
     };
-  }, [token, activeId]);
+  }, [token, activeId, meData?.me?.id]);
 
   const typingNotice = useMemo(() => {
     const others = Object.values(typingUsers);
@@ -633,8 +759,12 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
     setPresenceUsers([]);
     setTypingUsers({});
     setRemoteCursors({});
+    setSelfUserId("");
     setSocketSelfCursorId("");
+    selfUserIdRef.current = "";
     socketSelfCursorIdRef.current = "";
+    lastRemoteCursorSeqRef.current = {};
+    lastRemoteCursorSourceRef.current = {};
     setLastSectionActor("");
     setCollabEmail("");
     closeModal();
@@ -726,21 +856,48 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
     saveTimerRef.current = window.setTimeout(async () => {
       try {
         setSaveState("saving");
+        const baseContent = String(lastSyncedSectionContentRef.current || "");
+        const operation = computeStringOperation(baseContent, nextValue);
 
-        const result = await updateSection({
-          variables: {
-            sectionId,
-            content: nextValue
+        let result;
+
+        if (operation) {
+          try {
+            result = await applySectionOperation({
+              variables: {
+                sectionId,
+                baseContent,
+                operation
+              }
+            });
+          } catch {
+            result = await updateSection({
+              variables: {
+                sectionId,
+                content: nextValue
+              }
+            });
           }
-        });
+        } else {
+          localEditRef.current = false;
+          setSaveState("saved");
+          return;
+        }
+
+        lastSyncedSectionContentRef.current = String(
+          result.data?.applySectionOperation?.content ||
+            result.data?.updateSection?.content ||
+            nextValue
+        );
 
         setLastSectionActor(
-          result.data?.updateSection?.updatedBy?.name || meData?.me?.name || ""
+          result.data?.applySectionOperation?.updatedBy?.name ||
+            result.data?.updateSection?.updatedBy?.name ||
+            meData?.me?.name ||
+            ""
         );
         localEditRef.current = false;
         setSaveState("saved");
-
-        await refreshEditorData();
       } catch (error) {
         setSaveState("error");
         setNotice(toFriendlyError(error));
@@ -753,7 +910,7 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
           }
         }).catch(() => {});
       }
-    }, 1200);
+    }, 300);
   }
 
   function handleCursorActivity(cursorPosition) {
@@ -761,25 +918,31 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
       return;
     }
 
-    if (Number(cursorPosition.offset) === lastCursorOffsetRef.current) {
+    const from = Math.max(Number(cursorPosition.from) || 1, 1);
+    const to = Math.max(Number(cursorPosition.to) || from, from);
+
+    const cursorKey = [
+      String(activeSection.id),
+      from,
+      to
+    ].join(":");
+
+    if (cursorKey === lastCursorOffsetRef.current) {
       return;
     }
 
-    lastCursorOffsetRef.current = Number(cursorPosition.offset);
-    clearPendingCursorUpdate();
+    lastCursorOffsetRef.current = cursorKey;
 
     const payload = {
       documentId: activeId,
       sectionId: activeSection.id,
       sectionTitle: activeSection.title,
-      line: Number(cursorPosition.line) || 1,
-      column: Number(cursorPosition.column) || 1,
-      offset: Number(cursorPosition.offset) || 0
+      from,
+      to,
+      offset: Math.max(from - 1, 0)
     };
 
-    cursorTimerRef.current = window.setTimeout(() => {
-      cursorSocketRef.current?.emit("cursor:move", payload);
-    }, 120);
+    cursorSocketRef.current?.emit("cursor:move", payload);
   }
 
   async function handleCreateSection(parentId = null) {
@@ -1118,7 +1281,6 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
               onSaveSectionTitle={handleSaveSectionTitle}
               activeUsers={presenceUsers}
               currentUserId={meData?.me?.id || null}
-              currentCursorId={socketSelfCursorId || null}
               cursorUsers={Object.values(coloredRemoteCursors)}
               onCursorActivity={handleCursorActivity}
               typingNotice={typingNotice}

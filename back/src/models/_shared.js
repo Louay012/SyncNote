@@ -55,6 +55,16 @@ export function mapSection(row) {
     return null;
   }
 
+  const normalizedDoc = row.content_doc ?? {
+    type: "doc",
+    content: [
+      {
+        type: "paragraph",
+        content: [{ type: "text", text: String(row.content ?? "") }]
+      }
+    ]
+  };
+
   return {
     id: String(row.id),
     documentId: String(row.document_id),
@@ -63,7 +73,7 @@ export function mapSection(row) {
     parentId: row.parent_id !== null && row.parent_id !== undefined ? String(row.parent_id) : null,
     order: Number(row.order_index || 0),
     type: row.type,
-    content: row.content,
+    content: JSON.stringify(normalizedDoc),
     updatedById: row.updated_by_id ? String(row.updated_by_id) : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at

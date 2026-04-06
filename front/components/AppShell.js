@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import NotificationCenter from "@/components/NotificationCenter";
 import SidebarNavigation from "@/components/SidebarNavigation";
 
 const SIDEBAR_STATE_KEY = "syncnote-sidebar-open";
@@ -103,8 +104,11 @@ export default function AppShell({
 
       <section className="app-main">
         <header className="app-header">
-          <h1>{title}</h1>
-          {subtitle ? <p>{subtitle}</p> : null}
+          <div className="app-header-main">
+            <h1>{title}</h1>
+            {subtitle ? <p>{subtitle}</p> : null}
+          </div>
+          <NotificationCenter />
         </header>
         {children}
       </section>
