@@ -37,6 +37,7 @@ function Group({
             <strong>{doc.title}</strong>
             <span>{formatTime(doc.updatedAt)}</span>
             <small>Owner: {doc.owner.name}</small>
+            <small>{doc.isPublic ? "Visibility: Public" : "Visibility: Private"}</small>
           </button>
           {showShareActions && (canShareDoc ? canShareDoc(doc) : true) ? (
             <button

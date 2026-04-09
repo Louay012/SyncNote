@@ -115,6 +115,7 @@ function isDiscoverPath(pathname) {
 export default function SidebarNavigation({
   variant = "default",
   isOpen = true,
+  overlayMode = false,
   onToggleSidebar,
   onNavigate,
   onLogout
@@ -123,6 +124,7 @@ export default function SidebarNavigation({
   const router = useRouter();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [createTitle, setCreateTitle] = useState("");
+  const [createIsPublic, setCreateIsPublic] = useState(false);
   const [createError, setCreateError] = useState("");
   const [createDocument, { loading: creatingDocument }] = useMutation(CREATE_DOCUMENT);
   const collapsed = !isOpen;
@@ -145,12 +147,15 @@ export default function SidebarNavigation({
   function openCreateDialog() {
     setCreateError("");
     setCreateTitle("");
+    setCreateIsPublic(false);
+    onNavigate?.();
     setShowCreateDialog(true);
   }
 
   function closeCreateDialog() {
     setShowCreateDialog(false);
     setCreateError("");
+    setCreateIsPublic(false);
   }
 
   async function handleCreateDocument(event) {
@@ -167,7 +172,8 @@ export default function SidebarNavigation({
       const result = await createDocument({
         variables: {
           title,
-          content: ""
+          content: "",
+          isPublic: createIsPublic
         }
       });
 
@@ -186,7 +192,7 @@ export default function SidebarNavigation({
   const sidebarClassName = [
     "app-sidebar",
     collapsed ? "collapsed" : "",
-    variant === "editor" ? "overlay" : ""
+    (variant === "editor" || overlayMode) ? "overlay" : ""
   ]
     .filter(Boolean)
     .join(" ");
@@ -360,6 +366,15 @@ export default function SidebarNavigation({
                 placeholder="Document title"
                 disabled={creatingDocument}
               />
+              <label className="sidebar-visibility-toggle">
+                <input
+                  type="checkbox"
+                  checked={createIsPublic}
+                  onChange={(event) => setCreateIsPublic(event.target.checked)}
+                  disabled={creatingDocument}
+                />
+                <span>Public document (discoverable in search)</span>
+              </label>
               {createError ? <p className="field-error">{createError}</p> : null}
               <div className="sidebar-create-actions">
                 <button type="button" onClick={closeCreateDialog} disabled={creatingDocument}>

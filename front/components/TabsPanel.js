@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-export default function TabsPanel({ tabs, defaultTabId }) {
+export default function TabsPanel({ tabs, defaultTabId, onRequestClose = null }) {
   const availableTabs = Array.isArray(tabs) ? tabs.filter(Boolean) : [];
   const initial = defaultTabId || availableTabs[0]?.id || "";
   const [activeTabId, setActiveTabId] = useState(initial);
@@ -23,6 +23,19 @@ export default function TabsPanel({ tabs, defaultTabId }) {
 
   return (
     <section className="panel tabs-panel">
+      <div className="tabs-panel-top">
+        <h3>Workspace Panels</h3>
+        {typeof onRequestClose === "function" ? (
+          <button
+            type="button"
+            className="tabs-close-btn"
+            onClick={onRequestClose}
+          >
+            Close
+          </button>
+        ) : null}
+      </div>
+
       <div className="tabs-header" role="tablist" aria-label="Workspace panels">
         {availableTabs.map((tab) => (
           <button

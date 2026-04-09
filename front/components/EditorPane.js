@@ -188,25 +188,6 @@ export default function EditorPane({
             </span>
           ))}
         </div>
-        <div className="presence-list">
-          {liveCursorUsers.map((entry) => {
-            const color = entry.cursorColor;
-
-            return (
-              <span
-                key={`cursor-${entry.cursorId || entry.userId}`}
-                className="presence-chip cursor-chip"
-                style={{
-                  backgroundColor: color ? `${color.bg}22` : undefined,
-                  color: color?.border,
-                  borderColor: color?.border
-                }}
-              >
-                {entry.user?.name || "User"} at P{entry.from || 1}
-              </span>
-            );
-          })}
-        </div>
         {typingNotice ? <p className="typing-indicator">{typingNotice}</p> : null}
       </section>
     </section>

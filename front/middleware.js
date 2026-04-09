@@ -10,6 +10,12 @@ export function middleware(request) {
   const { pathname } = request.nextUrl;
   const authenticated = isAuthenticated(request);
   const publicAuthRoutes = ["/auth", "/login", "/signup"];
+  const publicAuthPrefixRoutes = [
+    "/auth/check-email",
+    "/auth/verify",
+    "/auth/forgot-password",
+    "/auth/reset-password"
+  ];
   const protectedRoutes = [
     "/",
     "/documents",
@@ -22,6 +28,10 @@ export function middleware(request) {
 
   if (pathname === "/login" || pathname === "/signup") {
     return NextResponse.redirect(new URL("/auth", request.url));
+  }
+
+  if (publicAuthPrefixRoutes.some((prefix) => pathname.startsWith(prefix))) {
+    return NextResponse.next();
   }
 
   if (publicAuthRoutes.includes(pathname) && authenticated) {
@@ -46,6 +56,7 @@ export const config = {
     "/discover",
     "/invitations",
     "/auth",
+    "/auth/:path*",
     "/login",
     "/signup",
     "/doc/:path*",

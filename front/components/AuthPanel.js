@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import Link from "next/link";
+import { useEffect, useState } from "react";
 import { isEmail } from "@/lib/uiErrors";
 
 export default function AuthPanel({
@@ -16,6 +17,11 @@ export default function AuthPanel({
   const [password, setPassword] = useState("");
   const [errors, setErrors] = useState({});
 
+  useEffect(() => {
+    setMode(initialMode);
+    setErrors({});
+  }, [initialMode]);
+
   function setField(field, value, setter) {
     setter(value);
     setErrors((current) => {
@@ -27,6 +33,11 @@ export default function AuthPanel({
       delete next[field];
       return next;
     });
+  }
+
+  function switchMode(nextMode) {
+    setMode(nextMode);
+    setErrors({});
   }
 
   async function submit(event) {
@@ -79,14 +90,14 @@ export default function AuthPanel({
         <div className="auth-tabs" role="tablist" aria-label="Authentication mode">
           <button
             type="button"
-            onClick={() => setMode("login")}
+            onClick={() => switchMode("login")}
             className={mode === "login" ? "active" : ""}
           >
             Login
           </button>
           <button
             type="button"
-            onClick={() => setMode("register")}
+            onClick={() => switchMode("register")}
             className={mode === "register" ? "active" : ""}
           >
             Register
@@ -130,6 +141,14 @@ export default function AuthPanel({
           />
           {errors.password ? <p className="field-error">{errors.password}</p> : null}
         </>
+
+        {mode === "login" ? (
+          <Link className="auth-link-btn" href="/auth/forgot-password">
+            Forgot password?
+          </Link>
+        ) : (
+          <p className="list-meta">We will send you a verification email after signup.</p>
+        )}
 
         <button type="submit" disabled={loading}>
           {loading

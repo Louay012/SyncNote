@@ -5,8 +5,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import { clearStoredToken } from "@/lib/authToken";
-import { GET_ME, UPDATE_PROFILE } from "@/lib/graphql";
-import { toFriendlyError } from "@/lib/uiErrors";
+import { GET_ME, UPDATE_PASSWORD, UPDATE_PROFILE } from "@/lib/graphql";
+import { toFriendlyAuthError, toFriendlyError } from "@/lib/uiErrors";
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -27,6 +27,7 @@ export default function ProfilePage() {
     fetchPolicy: "cache-and-network"
   });
   const [updateProfile, { loading: updatingName }] = useMutation(UPDATE_PROFILE);
+  const [updatePassword, { loading: updatingPassword }] = useMutation(UPDATE_PASSWORD);
 
   useEffect(() => {
     if (data?.me?.name) {
@@ -104,7 +105,7 @@ export default function ProfilePage() {
     return nextErrors;
   }
 
-  function handlePasswordSubmit(event) {
+  async function handlePasswordSubmit(event) {
     event.preventDefault();
     const nextErrors = validatePasswordForm();
     setPasswordErrors(nextErrors);
@@ -114,10 +115,19 @@ export default function ProfilePage() {
       return;
     }
 
-    setPasswordNotice(
-      "Password updates are not exposed by the current API yet. Validation is in place and this form is ready when endpoint support is enabled."
-    );
-    setPasswordValues({ currentPassword: "", newPassword: "", confirmPassword: "" });
+    try {
+      await updatePassword({
+        variables: {
+          currentPassword: passwordValues.currentPassword,
+          newPassword: passwordValues.newPassword
+        }
+      });
+
+      setPasswordNotice("Password updated successfully.");
+      setPasswordValues({ currentPassword: "", newPassword: "", confirmPassword: "" });
+    } catch (mutationError) {
+      setPasswordNotice(toFriendlyAuthError(mutationError, "password"));
+    }
   }
 
   return (
@@ -206,7 +216,9 @@ export default function ProfilePage() {
 
               {passwordNotice ? <p className="field-success">{passwordNotice}</p> : null}
 
-              <button type="submit">Update password</button>
+              <button type="submit" disabled={updatingPassword}>
+                {updatingPassword ? "Updating..." : "Update password"}
+              </button>
             </form>
           </article>
         </section>

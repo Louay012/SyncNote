@@ -2,7 +2,7 @@ import { query } from "../db/postgres.js";
 import { mapDocument } from "./_shared.js";
 
 const baseSelect =
-  "SELECT id, title, content, owner_id, created_at, updated_at FROM documents";
+  "SELECT id, title, content, is_public, owner_id, created_at, updated_at FROM documents";
 
 function mapSortField(sortBy = "UPDATED_AT") {
   const sortMap = {
@@ -49,7 +49,7 @@ async function runPagedDocumentQuery({
 
   const listResult = await query(
     `
-      SELECT DISTINCT d.id, d.title, d.content, d.owner_id, d.created_at, d.updated_at
+      SELECT DISTINCT d.id, d.title, d.content, d.is_public, d.owner_id, d.created_at, d.updated_at
       FROM documents d
       LEFT JOIN shares s ON s.document_id = d.id
       WHERE ${whereSql}
@@ -120,20 +120,20 @@ const Document = {
         : "d.title ILIKE $2";
 
     return runPagedDocumentQuery({
-      whereSql: `d.owner_id <> $1 AND (${modeWhereSql})`,
+      whereSql: `d.owner_id <> $1 AND d.is_public = true AND (${modeWhereSql})`,
       params: [userId, `%${keyword}%`],
       ...options
     });
   },
 
-  async create({ title, content = "", owner }) {
+  async create({ title, content = "", owner, isPublic = false }) {
     const { rows } = await query(
       `
-        INSERT INTO documents(title, content, owner_id)
-        VALUES ($1, $2, $3)
-        RETURNING id, title, content, owner_id, created_at, updated_at
+        INSERT INTO documents(title, content, is_public, owner_id)
+        VALUES ($1, $2, $3, $4)
+        RETURNING id, title, content, is_public, owner_id, created_at, updated_at
       `,
-      [title, content, owner]
+      [title, content, Boolean(isPublic), owner]
     );
 
     return mapDocument(rows[0]);
@@ -153,6 +153,11 @@ const Document = {
       sets.push(`content = $${values.length}`);
     }
 
+    if (Object.hasOwn(updates, "isPublic")) {
+      values.push(Boolean(updates.isPublic));
+      sets.push(`is_public = $${values.length}`);
+    }
+
     if (!sets.length) {
       return options.new ? this.findById(id) : null;
     }
@@ -164,7 +169,7 @@ const Document = {
         UPDATE documents
         SET ${sets.join(", ")}, updated_at = NOW()
         WHERE id = $${values.length}
-        RETURNING id, title, content, owner_id, created_at, updated_at
+        RETURNING id, title, content, is_public, owner_id, created_at, updated_at
       `,
       values
     );
@@ -177,7 +182,7 @@ const Document = {
       `
         DELETE FROM documents
         WHERE id = $1
-        RETURNING id, title, content, owner_id, created_at, updated_at
+        RETURNING id, title, content, is_public, owner_id, created_at, updated_at
       `,
       [id]
     );
@@ -191,7 +196,7 @@ const Document = {
         UPDATE documents
         SET updated_at = NOW()
         WHERE id = $1
-        RETURNING id, title, content, owner_id, created_at, updated_at
+        RETURNING id, title, content, is_public, owner_id, created_at, updated_at
       `,
       [id]
     );

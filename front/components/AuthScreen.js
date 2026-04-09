@@ -61,11 +61,15 @@ function AuthScreenContent({
   async function handleRegister(credentials) {
     try {
       const result = await register({ variables: credentials });
-      const nextToken = result.data?.register?.token;
-      if (nextToken) {
-        setStoredToken(nextToken);
+      const payload = result.data?.register;
+
+      if (payload?.token && payload?.user?.emailVerified) {
+        setStoredToken(payload.token);
         router.replace("/");
+        return;
       }
+
+      router.replace(`/auth/check-email?email=${encodeURIComponent(credentials.email)}`);
     } catch (error) {
       setNotice(toFriendlyAuthError(error, "register"));
     }

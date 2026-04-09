@@ -8,6 +8,7 @@ export function mapUser(row) {
     name: row.name,
     email: row.email,
     password: row.password,
+    emailVerified: Boolean(row.email_verified),
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -22,6 +23,7 @@ export function mapDocument(row) {
     id: String(row.id),
     title: row.title,
     content: row.content,
+    isPublic: Boolean(row.is_public),
     owner: String(row.owner_id),
     createdAt: row.created_at,
     updatedAt: row.updated_at

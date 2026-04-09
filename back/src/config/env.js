@@ -14,8 +14,15 @@ export const env = {
   nodeEnv: process.env.NODE_ENV || "development",
   port: Number(process.env.PORT) || 4000,
   postgresUri: process.env.POSTGRES_URI,
+  appUrl: process.env.APP_URL || "http://localhost:3000",
   jwtSecret: process.env.JWT_SECRET,
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || "7d",
+  smtpHost: process.env.SMTP_HOST || "",
+  smtpPort: Number(process.env.SMTP_PORT || 587),
+  smtpSecure: String(process.env.SMTP_SECURE || "false").toLowerCase() === "true",
+  smtpUser: process.env.SMTP_USER || "",
+  smtpPass: process.env.SMTP_PASS || "",
+  smtpFrom: process.env.SMTP_FROM || "SyncNote <no-reply@syncnote.local>",
   corsOrigin: process.env.CORS_ORIGIN || "*",
   graphqlIntrospection:
     String(process.env.GRAPHQL_INTROSPECTION || "").toLowerCase() === "true" ||

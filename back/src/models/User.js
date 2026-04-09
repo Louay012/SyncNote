@@ -4,7 +4,7 @@ import { mapUser } from "./_shared.js";
 const User = {
   async findById(id) {
     const { rows } = await query(
-      "SELECT id, name, email, password, created_at, updated_at FROM users WHERE id = $1",
+      "SELECT id, name, email, password, email_verified, created_at, updated_at FROM users WHERE id = $1",
       [id]
     );
     return mapUser(rows[0]);
@@ -13,7 +13,7 @@ const User = {
   async findOne(filter = {}) {
     if (filter.email) {
       const { rows } = await query(
-        "SELECT id, name, email, password, created_at, updated_at FROM users WHERE email = $1",
+        "SELECT id, name, email, password, email_verified, created_at, updated_at FROM users WHERE email = $1",
         [filter.email]
       );
       return mapUser(rows[0]);
@@ -28,21 +28,21 @@ const User = {
     }
 
     const { rows } = await query(
-      "SELECT id, name, email, password, created_at, updated_at FROM users WHERE id = ANY($1::bigint[])",
+      "SELECT id, name, email, password, email_verified, created_at, updated_at FROM users WHERE id = ANY($1::bigint[])",
       [ids]
     );
 
     return rows.map(mapUser);
   },
 
-  async create({ name, email, password }) {
+  async create({ name, email, password, emailVerified = false }) {
     const { rows } = await query(
       `
-        INSERT INTO users(name, email, password)
-        VALUES ($1, $2, $3)
-        RETURNING id, name, email, password, created_at, updated_at
+        INSERT INTO users(name, email, password, email_verified)
+        VALUES ($1, $2, $3, $4)
+        RETURNING id, name, email, password, email_verified, created_at, updated_at
       `,
-      [name, email, password]
+      [name, email, password, emailVerified]
     );
 
     return mapUser(rows[0]);
@@ -57,6 +57,16 @@ const User = {
       sets.push(`name = $${values.length}`);
     }
 
+    if (Object.hasOwn(updates, "password")) {
+      values.push(updates.password);
+      sets.push(`password = $${values.length}`);
+    }
+
+    if (Object.hasOwn(updates, "emailVerified")) {
+      values.push(Boolean(updates.emailVerified));
+      sets.push(`email_verified = $${values.length}`);
+    }
+
     if (!sets.length) {
       return options.new ? this.findById(id) : null;
     }
@@ -68,7 +78,7 @@ const User = {
         UPDATE users
         SET ${sets.join(", ")}, updated_at = NOW()
         WHERE id = $${values.length}
-        RETURNING id, name, email, password, created_at, updated_at
+        RETURNING id, name, email, password, email_verified, created_at, updated_at
       `,
       values
     );

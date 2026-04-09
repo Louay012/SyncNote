@@ -8,6 +8,7 @@ export const LOGIN = gql`
         id
         name
         email
+        emailVerified
       }
     }
   }
@@ -21,6 +22,7 @@ export const REGISTER = gql`
         id
         name
         email
+        emailVerified
       }
     }
   }
@@ -32,6 +34,7 @@ export const GET_ME = gql`
       id
       name
       email
+      emailVerified
     }
   }
 `;
@@ -55,6 +58,7 @@ export const GET_MY_DOCUMENTS = gql`
       items {
         id
         title
+        isPublic
         updatedAt
         owner {
           id
@@ -84,6 +88,7 @@ export const GET_SHARED_DOCUMENTS = gql`
       items {
         id
         title
+        isPublic
         updatedAt
         owner {
           id
@@ -115,6 +120,7 @@ export const SEARCH_DOCUMENTS = gql`
       items {
         id
         title
+        isPublic
         updatedAt
         owner {
           id
@@ -148,6 +154,7 @@ export const SEARCH_OTHER_USERS_DOCUMENTS_BY_TITLE = gql`
       items {
         id
         title
+        isPublic
         likesCount
         likedByMe
         updatedAt
@@ -165,6 +172,7 @@ export const GET_DOCUMENT = gql`
     document(id: $id) {
       id
       title
+      isPublic
       updatedAt
       owner {
         id
@@ -247,10 +255,11 @@ export const GET_DOCUMENT_PRESENCE = gql`
 `;
 
 export const CREATE_DOCUMENT = gql`
-  mutation CreateDocument($title: String!, $content: String) {
-    createDocument(title: $title, content: $content) {
+  mutation CreateDocument($title: String!, $content: String, $isPublic: Boolean) {
+    createDocument(title: $title, content: $content, isPublic: $isPublic) {
       id
       title
+      isPublic
       updatedAt
     }
   }
@@ -266,11 +275,46 @@ export const UPDATE_PROFILE = gql`
   }
 `;
 
+export const UPDATE_PASSWORD = gql`
+  mutation UpdatePassword($currentPassword: String!, $newPassword: String!) {
+    updatePassword(currentPassword: $currentPassword, newPassword: $newPassword) {
+      id
+      name
+      email
+    }
+  }
+`;
+
+export const VERIFY_EMAIL = gql`
+  mutation VerifyEmail($token: String!) {
+    verifyEmail(token: $token)
+  }
+`;
+
+export const RESEND_VERIFICATION_EMAIL = gql`
+  mutation ResendVerificationEmail($email: String!) {
+    resendVerificationEmail(email: $email)
+  }
+`;
+
+export const REQUEST_PASSWORD_RESET = gql`
+  mutation RequestPasswordReset($email: String!) {
+    requestPasswordReset(email: $email)
+  }
+`;
+
+export const RESET_PASSWORD = gql`
+  mutation ResetPassword($token: String!, $newPassword: String!) {
+    resetPassword(token: $token, newPassword: $newPassword)
+  }
+`;
+
 export const UPDATE_DOCUMENT = gql`
-  mutation UpdateDocument($id: ID!, $title: String, $content: String) {
-    updateDocument(id: $id, title: $title, content: $content) {
+  mutation UpdateDocument($id: ID!, $title: String, $content: String, $isPublic: Boolean) {
+    updateDocument(id: $id, title: $title, content: $content, isPublic: $isPublic) {
       id
       title
+      isPublic
       updatedAt
     }
   }

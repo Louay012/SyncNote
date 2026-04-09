@@ -25,6 +25,32 @@ const baseSelect = `
   FROM user_notifications
 `;
 
+const DEFAULT_VISIBLE_TYPES = [
+  "DOCUMENT_LIKED",
+  "INVITE_RECEIVED",
+  "INVITE_APPROVED",
+  "INVITE_REJECTED"
+];
+
+function notificationTypeFilter(startIndex, types = DEFAULT_VISIBLE_TYPES) {
+  const safeTypes = Array.isArray(types)
+    ? types.filter((type) => typeof type === "string" && type.trim())
+    : [];
+
+  if (!safeTypes.length) {
+    return {
+      sql: "",
+      values: []
+    };
+  }
+
+  const placeholders = safeTypes.map((_, index) => `$${startIndex + index}`);
+  return {
+    sql: ` AND type IN (${placeholders.join(", ")})`,
+    values: safeTypes
+  };
+}
+
 const Notification = {
   async create({
     recipientId,
@@ -55,32 +81,42 @@ const Notification = {
     return mapNotification(rows[0]);
   },
 
-  async findByRecipient(recipientId, { limit = 20, offset = 0, unreadOnly = false } = {}) {
+  async findByRecipient(
+    recipientId,
+    {
+      limit = 20,
+      offset = 0,
+      unreadOnly = false,
+      types = DEFAULT_VISIBLE_TYPES
+    } = {}
+  ) {
     const safeLimit = Math.min(Math.max(Number(limit) || 20, 1), 100);
     const safeOffset = Math.max(Number(offset) || 0, 0);
 
-    const values = [recipientId];
     const unreadSql = unreadOnly ? " AND is_read = false" : "";
+    const typeSql = notificationTypeFilter(2, types);
+    const baseValues = [recipientId, ...typeSql.values];
 
     const countResult = await query(
       `
         SELECT COUNT(*)::int AS total
         FROM user_notifications
-        WHERE recipient_id = $1${unreadSql}
+        WHERE recipient_id = $1${unreadSql}${typeSql.sql}
       `,
-      values
+      baseValues
     );
 
-    values.push(safeLimit, safeOffset);
+    const limitPlaceholder = baseValues.length + 1;
+    const offsetPlaceholder = baseValues.length + 2;
 
     const { rows } = await query(
       `
         ${baseSelect}
-        WHERE recipient_id = $1${unreadSql}
+        WHERE recipient_id = $1${unreadSql}${typeSql.sql}
         ORDER BY created_at DESC
-        LIMIT $2 OFFSET $3
+        LIMIT $${limitPlaceholder} OFFSET $${offsetPlaceholder}
       `,
-      values
+      [...baseValues, safeLimit, safeOffset]
     );
 
     return {

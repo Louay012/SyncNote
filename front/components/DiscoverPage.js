@@ -156,7 +156,7 @@ function DiscoverContent({ token, onLogout }) {
 
       {!activeSearch ? (
         <section className="panel notice-panel">
-          <p>Start typing words or a sentence to discover documents from other users.</p>
+          <p>Start typing words or a sentence to discover public documents from other users.</p>
         </section>
       ) : null}
 

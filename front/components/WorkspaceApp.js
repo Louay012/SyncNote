@@ -62,6 +62,25 @@ const DOCUMENT_CURSOR_COLORS = [
   { bg: "#f06595", fg: "#57132a", border: "#c2255c" }
 ];
 
+const TABLET_BREAKPOINT = 1024;
+const MOBILE_BREAKPOINT = 768;
+
+function getEditorViewportMode() {
+  if (typeof window === "undefined") {
+    return "desktop";
+  }
+
+  if (window.innerWidth < MOBILE_BREAKPOINT) {
+    return "mobile";
+  }
+
+  if (window.innerWidth <= TABLET_BREAKPOINT) {
+    return "tablet";
+  }
+
+  return "desktop";
+}
+
 function sortByOrder(a, b) {
   return Number(a.order || 0) - Number(b.order || 0);
 }
@@ -201,6 +220,19 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
   const [collabEmail, setCollabEmail] = useState("");
   const [collabPermission, setCollabPermission] = useState("EDIT");
 
+  const [viewportMode, setViewportMode] = useState(() => getEditorViewportMode());
+  const [isSectionsPanelOpen, setIsSectionsPanelOpen] = useState(() => {
+    const mode = getEditorViewportMode();
+    return mode === "desktop";
+  });
+  const [isRightPanelOpen, setIsRightPanelOpen] = useState(() => {
+    const mode = getEditorViewportMode();
+    return mode === "desktop";
+  });
+
+  const isCompactViewport = viewportMode !== "desktop";
+  const isMobileViewport = viewportMode === "mobile";
+
   const saveTimerRef = useRef(null);
   const cursorTimerRef = useRef(null);
   const cursorSocketRef = useRef(null);
@@ -226,6 +258,48 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
     const timer = window.setTimeout(() => setNotice(""), 3500);
     return () => window.clearTimeout(timer);
   }, [notice]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    function updateViewportMode() {
+      setViewportMode(getEditorViewportMode());
+    }
+
+    updateViewportMode();
+    window.addEventListener("resize", updateViewportMode);
+
+    return () => window.removeEventListener("resize", updateViewportMode);
+  }, []);
+
+  useEffect(() => {
+    if (viewportMode === "desktop") {
+      setIsSectionsPanelOpen(true);
+      setIsRightPanelOpen(true);
+      return;
+    }
+
+    setIsSectionsPanelOpen(false);
+    setIsRightPanelOpen(false);
+  }, [viewportMode]);
+
+  useEffect(() => {
+    if (!isCompactViewport || (!isSectionsPanelOpen && !isRightPanelOpen)) {
+      return undefined;
+    }
+
+    function handleKeyDown(event) {
+      if (event.key === "Escape") {
+        setIsSectionsPanelOpen(false);
+        setIsRightPanelOpen(false);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isCompactViewport, isSectionsPanelOpen, isRightPanelOpen]);
 
   useEffect(
     () => () => {
@@ -801,6 +875,27 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
     }
   }
 
+  async function handleUpdateVisibility(isPublic) {
+    if (!activeId) {
+      return;
+    }
+
+    setModalError("");
+    try {
+      await updateDocument({
+        variables: {
+          id: activeId,
+          isPublic: Boolean(isPublic)
+        }
+      });
+
+      await refetchDoc();
+      setNotice(isPublic ? "Document is now public" : "Document is now private");
+    } catch (error) {
+      setModalError(toFriendlyError(error));
+    }
+  }
+
   async function handleSaveSectionTitle(nextTitle) {
     if (!activeSection) {
       return;
@@ -1180,6 +1275,10 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
     setSaveState("idle");
     lastCursorOffsetRef.current = null;
     localEditRef.current = false;
+
+    if (viewportMode !== "desktop") {
+      setIsSectionsPanelOpen(false);
+    }
   }
 
   const tabs = [
@@ -1216,6 +1315,55 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
   const treeDisabled =
     !activeDoc || loadingSections || creatingSection || deletingSection || reorderingSection;
 
+  const workspaceClassName = [
+    "workspace-frame",
+    "editor-only-frame",
+    isCompactViewport ? "workspace-compact" : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const sectionsDrawerClassName = [
+    "workspace-side",
+    isCompactViewport ? "workspace-drawer sections-drawer" : "",
+    isCompactViewport && isSectionsPanelOpen ? "open" : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const rightDrawerClassName = [
+    "workspace-right",
+    isCompactViewport ? "workspace-drawer right-drawer" : "",
+    isCompactViewport && isRightPanelOpen ? "open" : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  function toggleSectionsPanel() {
+    setIsSectionsPanelOpen((current) => {
+      const next = !current;
+      if (next) {
+        setIsRightPanelOpen(false);
+      }
+      return next;
+    });
+  }
+
+  function toggleRightPanel() {
+    setIsRightPanelOpen((current) => {
+      const next = !current;
+      if (next) {
+        setIsSectionsPanelOpen(false);
+      }
+      return next;
+    });
+  }
+
+  function closeWorkspacePanels() {
+    setIsSectionsPanelOpen(false);
+    setIsRightPanelOpen(false);
+  }
+
   return (
     <AppShell
       title="Editor"
@@ -1225,180 +1373,243 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
       variant={shellVariant}
       onLogout={handleLogout}
     >
-      {pageError ? (
-        <section className="panel notice-panel error-notice">
-          <p>{pageError}</p>
-          <button type="button" onClick={() => refetchDoc()}>
-            Retry
-          </button>
-        </section>
-      ) : null}
-
-      {notice ? (
-        <section className="panel notice-panel">
-          <p>{notice}</p>
-        </section>
-      ) : null}
-
-      {!loadingDoc && !activeDoc ? (
-        <section className="panel notice-panel error-notice">
-          <p>Document not found or inaccessible.</p>
-          <button type="button" onClick={() => router.push("/")}>
-            Back to dashboard
-          </button>
-        </section>
-      ) : null}
-
-      {activeDoc ? (
-        <section className="workspace-frame editor-only-frame">
-          <aside className="workspace-side">
-            <section className="panel sections-panel">
-              <SectionsTree
-                sections={sections}
-                selectedSectionId={selectedSectionId}
-                cursorUsersBySection={cursorUsersBySection}
-                onSelect={handleSelectSection}
-                onAddRoot={() => handleCreateSection(null)}
-                onAddChild={(parentId) => handleCreateSection(parentId)}
-                onDelete={handleDeleteSection}
-                onMove={handleMoveSection}
-                disabled={treeDisabled}
-                loading={Boolean(activeDoc) && loadingSections}
-              />
+      {({ toggleSidebar }) => (
+        <>
+          {pageError ? (
+            <section className="panel notice-panel error-notice">
+              <p>{pageError}</p>
+              <button type="button" onClick={() => refetchDoc()}>
+                Retry
+              </button>
             </section>
-          </aside>
+          ) : null}
 
-          <section className="workspace-main">
-            <EditorPane
-              document={activeDoc}
-              section={activeSection}
-              sectionContent={sectionDraft}
-              onSectionChange={handleSectionInput}
-              saveState={saveState}
-              saving={savingTitle || loadingDoc || loadingSections}
-              savingSection={savingSection}
-              onSaveTitle={handleSaveTitle}
-              onSaveSectionTitle={handleSaveSectionTitle}
-              activeUsers={presenceUsers}
-              currentUserId={meData?.me?.id || null}
-              cursorUsers={Object.values(coloredRemoteCursors)}
-              onCursorActivity={handleCursorActivity}
-              typingNotice={typingNotice}
-              updatedByName={activeSection?.updatedBy?.name || lastSectionActor}
-              onOpenShareModal={openShareModal}
-              collaboratorCount={(activeDoc?.collaborators || []).length}
-            />
-          </section>
+          {notice ? (
+            <section className="panel notice-panel">
+              <p>{notice}</p>
+            </section>
+          ) : null}
 
-          <aside className="workspace-right">
-            <TabsPanel tabs={tabs} defaultTabId="comments" />
-          </aside>
-        </section>
-      ) : null}
+          {!loadingDoc && !activeDoc ? (
+            <section className="panel notice-panel error-notice">
+              <p>Document not found or inaccessible.</p>
+              <button type="button" onClick={() => router.push("/")}>
+                Back to dashboard
+              </button>
+            </section>
+          ) : null}
 
-      {modal ? (
-        <section className="modal-backdrop" role="presentation">
-          <article className="panel modal-card" role="dialog" aria-modal="true">
-            {modalError ? <p className="modal-error">{modalError}</p> : null}
+          {activeDoc ? (
+            <section className={workspaceClassName}>
+              {isCompactViewport ? (
+                <>
+                  <section className="workspace-mobile-toolbar">
+                    <button type="button" onClick={toggleSidebar}>
+                      Menu
+                    </button>
+                    <button type="button" onClick={toggleSectionsPanel}>
+                      {isSectionsPanelOpen ? "Close Sections" : "Sections"}
+                    </button>
+                    <button type="button" onClick={toggleRightPanel}>
+                      {isRightPanelOpen
+                        ? "Close Panel"
+                        : isMobileViewport
+                        ? "Comments"
+                        : "Comments / Versions"}
+                    </button>
+                  </section>
 
-            {modal.type === "create-section" ? (
-              <>
-                <h3>{modal.heading}</h3>
-                <p className="list-meta">Create a new section in this document tree.</p>
-                <input
-                  autoFocus
-                  value={modal.title}
-                  onChange={(event) =>
-                    setModal((current) => ({ ...current, title: event.target.value }))
-                  }
-                  placeholder="Section title"
-                />
-                <div className="modal-actions">
-                  <button type="button" onClick={closeModal}>
-                    Cancel
-                  </button>
-                  <button type="button" onClick={submitCreateSection}>
-                    Create
-                  </button>
-                </div>
-              </>
-            ) : null}
+                  {isSectionsPanelOpen || isRightPanelOpen ? (
+                    <button
+                      type="button"
+                      className="workspace-panel-backdrop"
+                      aria-label="Close panels"
+                      onClick={closeWorkspacePanels}
+                    />
+                  ) : null}
+                </>
+              ) : null}
 
-            {modal.type === "share-document" ? (
-              <>
-                <h3>Share Document</h3>
-                <p className="list-meta">Invite collaborators and manage access.</p>
-                <form className="share-form" onSubmit={handleShare}>
-                  <input
-                    value={collabEmail}
-                    onChange={(event) => setCollabEmail(event.target.value)}
-                    placeholder="Collaborator email"
-                    disabled={!activeDoc || sharingDocument || unsharingDocument}
-                  />
-                  <select
-                    value={collabPermission}
-                    onChange={(event) => setCollabPermission(event.target.value)}
-                    disabled={!activeDoc || sharingDocument || unsharingDocument}
-                  >
-                    <option value="EDIT">EDIT</option>
-                    <option value="VIEW">VIEW</option>
-                  </select>
-                  <button
-                    type="submit"
-                    disabled={!activeDoc || sharingDocument || unsharingDocument}
-                  >
-                    {sharingDocument ? "Sharing..." : "Share"}
-                  </button>
-                </form>
-
-                <div className="collab-list">
-                  {(activeDoc?.collaborators || []).map((collaborator) => (
-                    <div key={collaborator.id} className="collab-item">
-                      <div>
-                        <strong>{collaborator.name}</strong>
-                        <small>{collaborator.email}</small>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleUnshare(collaborator.email)}
-                        disabled={sharingDocument || unsharingDocument}
-                      >
-                        Remove
+              <aside className={sectionsDrawerClassName}>
+                <section className="panel sections-panel">
+                  {isCompactViewport ? (
+                    <div className="workspace-drawer-header">
+                      <h3>Sections</h3>
+                      <button type="button" onClick={closeWorkspacePanels}>
+                        Close
                       </button>
                     </div>
-                  ))}
-                  {(activeDoc?.collaborators || []).length === 0 ? (
-                    <p className="empty">No collaborators yet.</p>
                   ) : null}
-                </div>
 
-                <div className="modal-actions">
-                  <button type="button" onClick={closeModal}>
-                    Close
-                  </button>
-                </div>
-              </>
-            ) : null}
+                  <SectionsTree
+                    sections={sections}
+                    selectedSectionId={selectedSectionId}
+                    cursorUsersBySection={cursorUsersBySection}
+                    onSelect={handleSelectSection}
+                    onAddRoot={() => handleCreateSection(null)}
+                    onAddChild={(parentId) => handleCreateSection(parentId)}
+                    onDelete={handleDeleteSection}
+                    onMove={handleMoveSection}
+                    disabled={treeDisabled}
+                    loading={Boolean(activeDoc) && loadingSections}
+                  />
+                </section>
+              </aside>
 
-            {modal.type === "delete-section" ? (
-              <>
-                <h3>Delete Section</h3>
-                <p>
-                  Delete <strong>{modal.sectionTitle}</strong>? This action cannot be undone.
-                </p>
-                <div className="modal-actions">
-                  <button type="button" onClick={closeModal}>
-                    Cancel
-                  </button>
-                  <button type="button" className="danger-btn" onClick={submitDeleteSection}>
-                    Delete
-                  </button>
-                </div>
-              </>
-            ) : null}
-          </article>
-        </section>
-      ) : null}
+              <section className="workspace-main">
+                <EditorPane
+                  document={activeDoc}
+                  section={activeSection}
+                  sectionContent={sectionDraft}
+                  onSectionChange={handleSectionInput}
+                  saveState={saveState}
+                  saving={savingTitle || loadingDoc || loadingSections}
+                  savingSection={savingSection}
+                  onSaveTitle={handleSaveTitle}
+                  onSaveSectionTitle={handleSaveSectionTitle}
+                  activeUsers={presenceUsers}
+                  currentUserId={meData?.me?.id || null}
+                  cursorUsers={Object.values(coloredRemoteCursors)}
+                  onCursorActivity={handleCursorActivity}
+                  typingNotice={typingNotice}
+                  updatedByName={activeSection?.updatedBy?.name || lastSectionActor}
+                  onOpenShareModal={openShareModal}
+                  collaboratorCount={(activeDoc?.collaborators || []).length}
+                />
+              </section>
+
+              <aside className={rightDrawerClassName}>
+                <TabsPanel
+                  tabs={tabs}
+                  defaultTabId="comments"
+                  onRequestClose={isCompactViewport ? closeWorkspacePanels : null}
+                />
+              </aside>
+            </section>
+          ) : null}
+
+          {modal ? (
+            <section className="modal-backdrop" role="presentation">
+              <article className="panel modal-card" role="dialog" aria-modal="true">
+                {modalError ? <p className="modal-error">{modalError}</p> : null}
+
+                {modal.type === "create-section" ? (
+                  <>
+                    <h3>{modal.heading}</h3>
+                    <p className="list-meta">Create a new section in this document tree.</p>
+                    <input
+                      autoFocus
+                      value={modal.title}
+                      onChange={(event) =>
+                        setModal((current) => ({ ...current, title: event.target.value }))
+                      }
+                      placeholder="Section title"
+                    />
+                    <div className="modal-actions">
+                      <button type="button" onClick={closeModal}>
+                        Cancel
+                      </button>
+                      <button type="button" onClick={submitCreateSection}>
+                        Create
+                      </button>
+                    </div>
+                  </>
+                ) : null}
+
+                {modal.type === "share-document" ? (
+                  <>
+                    <h3>Share Document</h3>
+                    <p className="list-meta">Invite collaborators and manage access.</p>
+                    <div className="doc-visibility-control">
+                      <label htmlFor="doc-visibility-select">Document visibility</label>
+                      <select
+                        id="doc-visibility-select"
+                        value={activeDoc?.isPublic ? "PUBLIC" : "PRIVATE"}
+                        onChange={(event) =>
+                          handleUpdateVisibility(event.target.value === "PUBLIC")
+                        }
+                        disabled={!activeDoc || savingTitle || sharingDocument || unsharingDocument}
+                      >
+                        <option value="PRIVATE">Private</option>
+                        <option value="PUBLIC">Public</option>
+                      </select>
+                      <p className="list-meta">
+                        Private documents are hidden from Discover search.
+                      </p>
+                    </div>
+                    <form className="share-form" onSubmit={handleShare}>
+                      <input
+                        value={collabEmail}
+                        onChange={(event) => setCollabEmail(event.target.value)}
+                        placeholder="Collaborator email"
+                        disabled={!activeDoc || sharingDocument || unsharingDocument}
+                      />
+                      <select
+                        value={collabPermission}
+                        onChange={(event) => setCollabPermission(event.target.value)}
+                        disabled={!activeDoc || sharingDocument || unsharingDocument}
+                      >
+                        <option value="EDIT">EDIT</option>
+                        <option value="VIEW">VIEW</option>
+                      </select>
+                      <button
+                        type="submit"
+                        disabled={!activeDoc || sharingDocument || unsharingDocument}
+                      >
+                        {sharingDocument ? "Sharing..." : "Share"}
+                      </button>
+                    </form>
+
+                    <div className="collab-list">
+                      {(activeDoc?.collaborators || []).map((collaborator) => (
+                        <div key={collaborator.id} className="collab-item">
+                          <div>
+                            <strong>{collaborator.name}</strong>
+                            <small>{collaborator.email}</small>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleUnshare(collaborator.email)}
+                            disabled={sharingDocument || unsharingDocument}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                      {(activeDoc?.collaborators || []).length === 0 ? (
+                        <p className="empty">No collaborators yet.</p>
+                      ) : null}
+                    </div>
+
+                    <div className="modal-actions">
+                      <button type="button" onClick={closeModal}>
+                        Close
+                      </button>
+                    </div>
+                  </>
+                ) : null}
+
+                {modal.type === "delete-section" ? (
+                  <>
+                    <h3>Delete Section</h3>
+                    <p>
+                      Delete <strong>{modal.sectionTitle}</strong>? This action cannot be undone.
+                    </p>
+                    <div className="modal-actions">
+                      <button type="button" onClick={closeModal}>
+                        Cancel
+                      </button>
+                      <button type="button" className="danger-btn" onClick={submitDeleteSection}>
+                        Delete
+                      </button>
+                    </div>
+                  </>
+                ) : null}
+              </article>
+            </section>
+          ) : null}
+        </>
+      )}
     </AppShell>
   );
 }

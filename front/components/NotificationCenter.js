@@ -11,6 +11,16 @@ import {
 import { toFriendlyError } from "@/lib/uiErrors";
 
 const NOTIFICATION_PAGE_SIZE = 20;
+const VISIBLE_NOTIFICATION_TYPES = new Set([
+  "DOCUMENT_LIKED",
+  "INVITE_RECEIVED",
+  "INVITE_APPROVED",
+  "INVITE_REJECTED"
+]);
+
+function isVisibleNotification(notification) {
+  return VISIBLE_NOTIFICATION_TYPES.has(String(notification?.type || ""));
+}
 
 function BellIcon() {
   return (
@@ -30,7 +40,7 @@ function formatWhen(value) {
 }
 
 function routeForNotification(notification) {
-  if (notification?.type === "INVITE_RECEIVED") {
+  if (String(notification?.type || "").startsWith("INVITE_")) {
     return "/invitations";
   }
 
@@ -67,13 +77,13 @@ export default function NotificationCenter() {
       return;
     }
 
-    setItems(data.myNotifications.items);
+    setItems(data.myNotifications.items.filter(isVisibleNotification));
   }, [data]);
 
   useSubscription(USER_NOTIFICATION_RECEIVED, {
     onData: ({ data: subscriptionPayload }) => {
       const incoming = subscriptionPayload?.data?.userNotificationReceived;
-      if (!incoming?.id) {
+      if (!incoming?.id || !isVisibleNotification(incoming)) {
         return;
       }
 
@@ -100,6 +110,21 @@ export default function NotificationCenter() {
     }
 
     return () => window.removeEventListener("mousedown", handleOutsideClick);
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return undefined;
+    }
+
+    function handleKeyDown(event) {
+      if (event.key === "Escape") {
+        setIsOpen(false);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen]);
 
   const unreadCount = useMemo(
@@ -153,9 +178,27 @@ export default function NotificationCenter() {
 
       {isOpen ? (
         <section className="notification-panel panel">
-          <h3>Notifications</h3>
+          <div className="notification-panel-header">
+            <div className="notification-panel-title">
+              <h3>Notifications</h3>
+              <p className="notification-summary">
+                {unreadCount > 0 ? `${unreadCount} unread` : "All caught up"}
+              </p>
+            </div>
+            <button
+              type="button"
+              className="notification-close-btn"
+              onClick={() => setIsOpen(false)}
+            >
+              Close
+            </button>
+          </div>
 
           {error ? <p className="field-error">{toFriendlyError(error)}</p> : null}
+
+          {loading && items.length === 0 ? (
+            <p className="list-meta">Loading notifications...</p>
+          ) : null}
 
           {!loading && items.length === 0 ? (
             <p className="list-meta">No notifications yet.</p>
@@ -169,7 +212,12 @@ export default function NotificationCenter() {
                 className={item.isRead ? "notification-item read" : "notification-item unread"}
                 onClick={() => handleNotificationClick(item)}
               >
-                <strong>{item.title}</strong>
+                <div className="notification-item-top">
+                  <strong>{item.title}</strong>
+                  {!item.isRead ? (
+                    <span className="notification-unread-dot" aria-hidden="true" />
+                  ) : null}
+                </div>
                 <span>{item.message}</span>
                 <small>{formatWhen(item.createdAt)}</small>
               </button>

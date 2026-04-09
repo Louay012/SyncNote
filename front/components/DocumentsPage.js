@@ -18,6 +18,7 @@ import {
   GET_MY_DOCUMENTS,
   GET_SHARED_DOCUMENTS,
   SEND_COLLABORATION_INVITE,
+  UPDATE_DOCUMENT,
   UNSHARE_DOCUMENT,
   SEARCH_DOCUMENTS
 } from "@/lib/graphql";
@@ -115,6 +116,7 @@ function DocumentsContent({ token, onLogout }) {
 
   const [sendInvite, { loading: sharingDocument }] = useMutation(SEND_COLLABORATION_INVITE);
   const [unshareDocument, { loading: unsharingDocument }] = useMutation(UNSHARE_DOCUMENT);
+  const [updateDocument, { loading: updatingDocumentVisibility }] = useMutation(UPDATE_DOCUMENT);
 
   const myDocs = searching
     ? searchDocsData?.searchDocuments?.items || []
@@ -127,7 +129,8 @@ function DocumentsContent({ token, onLogout }) {
 
   const listingError = myDocsError || sharedDocsError || searchError;
   const selectedShareDoc = shareDocData?.document || null;
-  const shareBusy = sharingDocument || unsharingDocument || loadingShareDoc;
+  const shareBusy =
+    sharingDocument || unsharingDocument || loadingShareDoc || updatingDocumentVisibility;
 
   async function refreshCollections() {
     if (searching) {
@@ -199,6 +202,26 @@ function DocumentsContent({ token, onLogout }) {
       });
 
       await Promise.all([refetchShareDoc(), refetchMine(), refetchShared()]);
+    } catch (error) {
+      setShareError(toFriendlyError(error));
+    }
+  }
+
+  async function handleUpdateVisibility(isPublic) {
+    if (!shareDocumentId) {
+      return;
+    }
+
+    setShareError("");
+    try {
+      await updateDocument({
+        variables: {
+          id: shareDocumentId,
+          isPublic: Boolean(isPublic)
+        }
+      });
+
+      await Promise.all([refetchShareDoc(), refreshCollections()]);
     } catch (error) {
       setShareError(toFriendlyError(error));
     }
@@ -285,6 +308,20 @@ function DocumentsContent({ token, onLogout }) {
           <article className="panel modal-card" role="dialog" aria-modal="true">
             <h3>Share: {selectedShareDoc?.title || "Document"}</h3>
             {shareError ? <p className="field-error">{shareError}</p> : null}
+
+            <div className="doc-visibility-control">
+              <label htmlFor="documents-visibility-select">Document visibility</label>
+              <select
+                id="documents-visibility-select"
+                value={selectedShareDoc?.isPublic ? "PUBLIC" : "PRIVATE"}
+                onChange={(event) => handleUpdateVisibility(event.target.value === "PUBLIC")}
+                disabled={shareBusy}
+              >
+                <option value="PRIVATE">Private</option>
+                <option value="PUBLIC">Public</option>
+              </select>
+              <p className="list-meta">Private documents are excluded from Discover search.</p>
+            </div>
 
             <form className="share-form" onSubmit={handleShare}>
               <input

@@ -53,6 +53,7 @@ export const typeDefs = `#graphql
     id: ID!
     name: String!
     email: String!
+    emailVerified: Boolean!
     createdAt: DateTime!
     updatedAt: DateTime!
   }
@@ -99,6 +100,7 @@ export const typeDefs = `#graphql
     id: ID!
     title: String!
     content: String!
+    isPublic: Boolean!
     owner: User!
     collaborators: [User!]!
     sections: [Section!]!
@@ -110,6 +112,7 @@ export const typeDefs = `#graphql
   type DiscoverDocument {
     id: ID!
     title: String!
+    isPublic: Boolean!
     owner: User!
     likesCount: Int!
     likedByMe: Boolean!
@@ -240,9 +243,14 @@ export const typeDefs = `#graphql
     register(name: String!, email: String!, password: String!): AuthPayload!
     login(email: String!, password: String!): AuthPayload!
     updateProfile(name: String): User!
+    updatePassword(currentPassword: String!, newPassword: String!): User!
+    verifyEmail(token: String!): Boolean!
+    resendVerificationEmail(email: String!): Boolean!
+    requestPasswordReset(email: String!): Boolean!
+    resetPassword(token: String!, newPassword: String!): Boolean!
 
-    createDocument(title: String!, content: String): Document!
-    updateDocument(id: ID!, title: String, content: String): Document!
+    createDocument(title: String!, content: String, isPublic: Boolean = false): Document!
+    updateDocument(id: ID!, title: String, content: String, isPublic: Boolean): Document!
     deleteDocument(id: ID!): Boolean!
 
     createSection(documentId: ID!, title: String!, parentId: ID): Section!

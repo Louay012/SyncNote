@@ -1,5 +1,8 @@
+import crypto from "node:crypto";
 import { GraphQLScalarType, Kind } from "graphql";
 import { withFilter } from "graphql-subscriptions";
+import { env } from "../config/env.js";
+import { query as dbQuery } from "../db/postgres.js";
 import Comment from "../models/Comment.js";
 import Document from "../models/Document.js";
 import Invitation from "../models/Invitation.js";
@@ -19,6 +22,12 @@ import {
 } from "./pubsub.js";
 import { comparePassword, hashPassword, signToken } from "../utils/auth.js";
 import {
+  buildPasswordResetEmail,
+  buildVerificationEmail,
+  isEmailDeliveryEnabled,
+  sendTransactionalEmail
+} from "../utils/email.js";
+import {
   canAccessDocument,
   canEditDocument,
   ensureDocumentAccess,
@@ -30,6 +39,8 @@ import {
 
 const DOCUMENT_LIST_LIMIT_MIN = 1;
 const DOCUMENT_LIST_LIMIT_MAX = 100;
+const EMAIL_VERIFY_TOKEN_TTL_MINUTES = 24 * 60;
+const PASSWORD_RESET_TOKEN_TTL_MINUTES = 60;
 
 function normalizeDocumentListArgs(args = {}) {
   const limit = Math.min(
@@ -103,6 +114,134 @@ function validateSectionContent(content) {
     throw new Error("Section content is too long");
   }
   return normalized;
+}
+
+function validatePasswordValue(password, fieldName = "Password") {
+  requireNonEmpty(password, fieldName);
+  const normalized = String(password);
+
+  if (normalized.length < 8) {
+    throw new Error(`${fieldName} must be at least 8 characters long`);
+  }
+
+  if (normalized.length > 128) {
+    throw new Error(`${fieldName} is too long`);
+  }
+
+  return normalized;
+}
+
+function generateSecureToken() {
+  return crypto.randomBytes(32).toString("hex");
+}
+
+function tokenExpiresAt(minutesFromNow) {
+  return new Date(Date.now() + minutesFromNow * 60 * 1000).toISOString();
+}
+
+function appRoute(pathname) {
+  const baseUrl = String(env.appUrl || "http://localhost:3000").replace(/\/$/, "");
+  return `${baseUrl}${pathname}`;
+}
+
+async function createEmailVerificationToken(userId) {
+  const token = generateSecureToken();
+  const expiresAt = tokenExpiresAt(EMAIL_VERIFY_TOKEN_TTL_MINUTES);
+
+  await dbQuery(
+    "DELETE FROM email_verification_tokens WHERE user_id = $1 AND used_at IS NULL",
+    [userId]
+  );
+
+  await dbQuery(
+    `
+      INSERT INTO email_verification_tokens(user_id, token, expires_at)
+      VALUES ($1, $2, $3)
+    `,
+    [userId, token, expiresAt]
+  );
+
+  return token;
+}
+
+async function consumeEmailVerificationToken(token) {
+  const { rows } = await dbQuery(
+    `
+      UPDATE email_verification_tokens
+      SET used_at = NOW()
+      WHERE token = $1
+        AND used_at IS NULL
+        AND expires_at > NOW()
+      RETURNING user_id
+    `,
+    [token]
+  );
+
+  return rows[0]?.user_id ? String(rows[0].user_id) : null;
+}
+
+async function createPasswordResetToken(userId) {
+  const token = generateSecureToken();
+  const expiresAt = tokenExpiresAt(PASSWORD_RESET_TOKEN_TTL_MINUTES);
+
+  await dbQuery(
+    "DELETE FROM password_reset_tokens WHERE user_id = $1 AND used_at IS NULL",
+    [userId]
+  );
+
+  await dbQuery(
+    `
+      INSERT INTO password_reset_tokens(user_id, token, expires_at)
+      VALUES ($1, $2, $3)
+    `,
+    [userId, token, expiresAt]
+  );
+
+  return token;
+}
+
+async function consumePasswordResetToken(token) {
+  const { rows } = await dbQuery(
+    `
+      UPDATE password_reset_tokens
+      SET used_at = NOW()
+      WHERE token = $1
+        AND used_at IS NULL
+        AND expires_at > NOW()
+      RETURNING user_id
+    `,
+    [token]
+  );
+
+  return rows[0]?.user_id ? String(rows[0].user_id) : null;
+}
+
+async function sendVerificationEmail(user) {
+  const token = await createEmailVerificationToken(user.id);
+  const verifyUrl = `${appRoute("/auth/verify")}?token=${encodeURIComponent(token)}`;
+  const message = buildVerificationEmail({
+    name: user.name,
+    verifyUrl
+  });
+
+  return sendTransactionalEmail({
+    to: user.email,
+    ...message
+  });
+}
+
+async function sendPasswordResetEmail(user) {
+  const token = await createPasswordResetToken(user.id);
+  const resetUrl = `${appRoute("/auth/reset-password")}?token=${encodeURIComponent(token)}`;
+  const message = buildPasswordResetEmail({
+    name: user.name,
+    resetUrl
+  });
+
+  return sendTransactionalEmail({
+    to: user.email,
+    ...message
+  });
 }
 
 function applyStringOperation(baseContent, operationInput = {}) {
@@ -239,45 +378,6 @@ async function createUserNotification({
   return notification;
 }
 
-async function notifyDocumentActivity({ documentId, actorUser, sectionTitle }) {
-  const [document, shares] = await Promise.all([
-    Document.findById(documentId),
-    Share.find({ document: documentId })
-  ]);
-
-  if (!document) {
-    return;
-  }
-
-  const recipients = new Set([
-    String(document.owner),
-    ...shares.map((share) => String(share.user))
-  ]);
-
-  recipients.delete(String(actorUser.id));
-  if (!recipients.size) {
-    return;
-  }
-
-  const title = `${actorUser.name} edited ${document.title}`;
-  const message = sectionTitle
-    ? `Updated section: ${sectionTitle}`
-    : "Document content was updated";
-
-  await Promise.all(
-    Array.from(recipients).map((recipientId) =>
-      createUserNotification({
-        recipientId,
-        actorId: actorUser.id,
-        type: "DOCUMENT_EDITED",
-        title,
-        message,
-        documentId: document.id
-      })
-    )
-  );
-}
-
 export const resolvers = {
   DateTime: new GraphQLScalarType({
     name: "DateTime",
@@ -408,18 +508,25 @@ export const resolvers = {
   Mutation: {
     register: async (_, { name, email, password }) => {
       validateRegisterInput({ name, email, password });
+      const safePassword = validatePasswordValue(password, "Password");
       const normalizedEmail = normalizeEmail(email);
+      const requiresEmailVerification = isEmailDeliveryEnabled();
       const existing = await User.findOne({ email: normalizedEmail });
       if (existing) {
         throw new Error("Email is already registered");
       }
 
-      const hashedPassword = await hashPassword(password);
+      const hashedPassword = await hashPassword(safePassword);
       const user = await User.create({
         name: name.trim(),
         email: normalizedEmail,
-        password: hashedPassword
+        password: hashedPassword,
+        emailVerified: !requiresEmailVerification
       });
+
+      if (requiresEmailVerification) {
+        await sendVerificationEmail(user);
+      }
 
       return {
         token: signToken(user.id),
@@ -442,6 +549,46 @@ export const resolvers = {
         throw new Error("Invalid email or password");
       }
 
+      if (!user.emailVerified) {
+        if (!isEmailDeliveryEnabled()) {
+          const upgradedUser = await User.findByIdAndUpdate(
+            user.id,
+            { emailVerified: true },
+            { new: true }
+          );
+
+          await dbQuery(
+            "DELETE FROM email_verification_tokens WHERE user_id = $1 AND used_at IS NULL",
+            [user.id]
+          );
+
+          return {
+            token: signToken(user.id),
+            user: upgradedUser || { ...user, emailVerified: true }
+          };
+        }
+
+        const { rows: verificationRows } = await dbQuery(
+          "SELECT EXISTS(SELECT 1 FROM email_verification_tokens WHERE user_id = $1) AS has_verification_record",
+          [user.id]
+        );
+
+        if (!verificationRows[0]?.has_verification_record) {
+          const upgradedLegacyUser = await User.findByIdAndUpdate(
+            user.id,
+            { emailVerified: true },
+            { new: true }
+          );
+
+          return {
+            token: signToken(user.id),
+            user: upgradedLegacyUser || { ...user, emailVerified: true }
+          };
+        }
+
+        throw new Error("Please verify your email before signing in");
+      }
+
       return {
         token: signToken(user.id),
         user
@@ -461,13 +608,132 @@ export const resolvers = {
       );
     },
 
-    createDocument: async (_, { title, content = "" }, contextValue) => {
+    updatePassword: async (_, { currentPassword, newPassword }, contextValue) => {
+      const user = requireAuth(contextValue);
+      const safeCurrentPassword = validatePasswordValue(
+        currentPassword,
+        "Current password"
+      );
+      const safeNewPassword = validatePasswordValue(newPassword, "New password");
+
+      if (safeCurrentPassword === safeNewPassword) {
+        throw new Error("New password must be different from current password");
+      }
+
+      const existingUser = await User.findById(user.id);
+      if (!existingUser) {
+        throw new Error("User not found");
+      }
+
+      const validPassword = await comparePassword(
+        safeCurrentPassword,
+        existingUser.password
+      );
+
+      if (!validPassword) {
+        throw new Error("Current password is incorrect");
+      }
+
+      const hashedPassword = await hashPassword(safeNewPassword);
+      return User.findByIdAndUpdate(
+        user.id,
+        { password: hashedPassword },
+        { new: true }
+      );
+    },
+
+    verifyEmail: async (_, { token }) => {
+      const safeToken = String(token || "").trim();
+      if (!safeToken) {
+        throw new Error("Verification token is required");
+      }
+
+      const userId = await consumeEmailVerificationToken(safeToken);
+      if (!userId) {
+        throw new Error("Verification link is invalid or expired");
+      }
+
+      await User.findByIdAndUpdate(userId, { emailVerified: true }, { new: true });
+      return true;
+    },
+
+    resendVerificationEmail: async (_, { email }) => {
+      const normalizedEmail = normalizeEmail(email);
+      requireNonEmpty(normalizedEmail, "Email");
+
+      if (!isEmailDeliveryEnabled()) {
+        throw new Error("Email delivery is not configured on server");
+      }
+
+      const user = await User.findOne({ email: normalizedEmail });
+      if (!user) {
+        throw new Error("No account found with this email");
+      }
+
+      if (user.emailVerified) {
+        return true;
+      }
+
+      await sendVerificationEmail(user);
+      return true;
+    },
+
+    requestPasswordReset: async (_, { email }) => {
+      const normalizedEmail = normalizeEmail(email);
+      requireNonEmpty(normalizedEmail, "Email");
+
+      if (!isEmailDeliveryEnabled()) {
+        throw new Error("Email delivery is not configured on server");
+      }
+
+      const user = await User.findOne({ email: normalizedEmail });
+      if (user) {
+        await sendPasswordResetEmail(user);
+      }
+
+      return true;
+    },
+
+    resetPassword: async (_, { token, newPassword }) => {
+      const safeToken = String(token || "").trim();
+      if (!safeToken) {
+        throw new Error("Password reset token is required");
+      }
+
+      const safeNewPassword = validatePasswordValue(newPassword, "New password");
+
+      const userId = await consumePasswordResetToken(safeToken);
+      if (!userId) {
+        throw new Error("Password reset link is invalid or expired");
+      }
+
+      const user = await User.findById(userId);
+      if (!user) {
+        throw new Error("User not found");
+      }
+
+      const isSameAsCurrent = await comparePassword(safeNewPassword, user.password);
+      if (isSameAsCurrent) {
+        throw new Error("New password must be different from current password");
+      }
+
+      const hashedPassword = await hashPassword(safeNewPassword);
+      await User.findByIdAndUpdate(user.id, { password: hashedPassword }, { new: true });
+      return true;
+    },
+
+    createDocument: async (
+      _,
+      { title, content = "", isPublic = false },
+      contextValue
+    ) => {
       const user = requireAuth(contextValue);
       const safeTitle = validateTextInput(title, "Title", 160);
 
       const document = await Document.create({
         title: safeTitle,
         content: String(content || ""),
+        isPublic: Boolean(isPublic),
         owner: user.id
       });
 
@@ -475,7 +741,7 @@ export const resolvers = {
       return document;
     },
 
-    updateDocument: async (_, { id, title, content }, contextValue) => {
+    updateDocument: async (_, { id, title, content, isPublic }, contextValue) => {
       const user = requireAuth(contextValue);
       ensureObjectId(id, "document id");
 
@@ -493,8 +759,12 @@ export const resolvers = {
         updates.content = validateSectionContent(content);
       }
 
+      if (typeof isPublic === "boolean") {
+        updates.isPublic = isPublic;
+      }
+
       if (!Object.keys(updates).length) {
-        throw new Error("At least one field (title or content) must be provided");
+        throw new Error("At least one field (title, content, or isPublic) must be provided");
       }
 
       const document = await Document.findByIdAndUpdate(id, updates, {
@@ -610,12 +880,6 @@ export const resolvers = {
         })
       ]);
 
-      await notifyDocumentActivity({
-        documentId: updatedSection.documentId,
-        actorUser: user,
-        sectionTitle: updatedSection.title
-      });
-
       return payload;
     },
 
@@ -670,12 +934,6 @@ export const resolvers = {
           documentId: updatedSection.documentId
         })
       ]);
-
-      await notifyDocumentActivity({
-        documentId: updatedSection.documentId,
-        actorUser: user,
-        sectionTitle: updatedSection.title
-      });
 
       return payload;
     },
@@ -979,6 +1237,10 @@ export const resolvers = {
 
       if (String(document.owner) === String(user.id)) {
         throw new Error("You cannot like your own document");
+      }
+
+      if (!document.isPublic && !(await canAccessDocument(user.id, documentId))) {
+        throw new Error("Document is private");
       }
 
       const alreadyLiked = await Like.findOne({

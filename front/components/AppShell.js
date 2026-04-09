@@ -1,10 +1,28 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import NotificationCenter from "@/components/NotificationCenter";
 import SidebarNavigation from "@/components/SidebarNavigation";
 
 const SIDEBAR_STATE_KEY = "syncnote-sidebar-open";
+const TABLET_MAX_WIDTH = 1024;
+const MOBILE_MAX_WIDTH = 767;
+
+function getViewportMode() {
+  if (typeof window === "undefined") {
+    return "desktop";
+  }
+
+  if (window.innerWidth <= MOBILE_MAX_WIDTH) {
+    return "mobile";
+  }
+
+  if (window.innerWidth <= TABLET_MAX_WIDTH) {
+    return "tablet";
+  }
+
+  return "desktop";
+}
 
 function readSidebarState(defaultOpen) {
   if (typeof window === "undefined") {
@@ -39,15 +57,58 @@ export default function AppShell({
   variant = "default"
 }) {
   const isEditorVariant = variant === "editor";
-  const defaultOpen = true;
-  const [isOpen, setIsOpen] = useState(defaultOpen);
+  const [viewportMode, setViewportMode] = useState(() => getViewportMode());
+  const previousViewportModeRef = useRef(viewportMode);
+  const isCompactViewport = viewportMode !== "desktop";
+
+  const [isOpen, setIsOpen] = useState(() => {
+    if (typeof window === "undefined") {
+      return true;
+    }
+
+    const currentViewportMode = getViewportMode();
+    if (currentViewportMode !== "desktop") {
+      return false;
+    }
+
+    return readSidebarState(true);
+  });
 
   useEffect(() => {
-    setIsOpen(readSidebarState(defaultOpen));
-  }, [defaultOpen]);
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    function updateViewportMode() {
+      setViewportMode(getViewportMode());
+    }
+
+    updateViewportMode();
+    window.addEventListener("resize", updateViewportMode);
+
+    return () => {
+      window.removeEventListener("resize", updateViewportMode);
+    };
+  }, []);
 
   useEffect(() => {
-    if (!isEditorVariant || !isOpen) {
+    const previousViewportMode = previousViewportModeRef.current;
+    if (previousViewportMode === viewportMode) {
+      return;
+    }
+
+    previousViewportModeRef.current = viewportMode;
+
+    if (viewportMode !== "desktop") {
+      setIsOpen(false);
+      return;
+    }
+
+    setIsOpen(readSidebarState(true));
+  }, [viewportMode]);
+
+  useEffect(() => {
+    if (!isOpen) {
       return undefined;
     }
 
@@ -64,20 +125,35 @@ export default function AppShell({
   function handleToggleSidebar() {
     setIsOpen((current) => {
       const next = !current;
-      writeSidebarState(next);
+      if (viewportMode === "desktop") {
+        writeSidebarState(next);
+      }
       return next;
     });
   }
 
   function handleNavigate() {
-    if (isEditorVariant) {
+    if (isCompactViewport || isEditorVariant) {
       setIsOpen(false);
     }
   }
 
+  const shellControls = {
+    isSidebarOpen: isOpen,
+    isCompactViewport,
+    viewportMode,
+    toggleSidebar: handleToggleSidebar,
+    openSidebar: () => setIsOpen(true),
+    closeSidebar: () => setIsOpen(false)
+  };
+
+  const renderedChildren =
+    typeof children === "function" ? children(shellControls) : children;
+
   const shellClassName = [
     "app-shell",
     isEditorVariant ? "app-shell-editor" : "",
+    isCompactViewport ? "app-shell-compact" : "",
     isOpen ? "sidebar-open" : "sidebar-closed"
   ]
     .filter(Boolean)
@@ -85,7 +161,7 @@ export default function AppShell({
 
   return (
     <main className={shellClassName}>
-      {isEditorVariant && isOpen ? (
+      {isCompactViewport && isOpen ? (
         <button
           type="button"
           className="app-overlay-backdrop"
@@ -97,6 +173,7 @@ export default function AppShell({
       <SidebarNavigation
         variant={variant}
         isOpen={isOpen}
+        overlayMode={isCompactViewport || isEditorVariant}
         onToggleSidebar={handleToggleSidebar}
         onNavigate={handleNavigate}
         onLogout={onLogout}
@@ -105,12 +182,20 @@ export default function AppShell({
       <section className="app-main">
         <header className="app-header">
           <div className="app-header-main">
+            <button
+              type="button"
+              className="app-header-nav-toggle"
+              onClick={handleToggleSidebar}
+              aria-label={isOpen ? "Close navigation" : "Open navigation"}
+            >
+              Menu
+            </button>
             <h1>{title}</h1>
             {subtitle ? <p>{subtitle}</p> : null}
           </div>
           <NotificationCenter />
         </header>
-        {children}
+        {renderedChildren}
       </section>
     </main>
   );
