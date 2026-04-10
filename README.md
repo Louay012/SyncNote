@@ -1,228 +1,326 @@
-﻿# SyncNote - Full Stack Collaborative Documents
+# SyncNote
 
-SyncNote includes:
+SyncNote is a full-stack collaborative document workspace with a GraphQL backend and a Next.js frontend.
 
-- A GraphQL backend for document collaboration, comments, sharing, and subscriptions
-- A Next.js frontend with document editor UI and live updates for edits/comments
+It includes:
+
+- Authentication with email verification and password reset
+- Document collaboration with owner/collaborator permissions
+- Section/subsection editing with autosave
+- Section comments and version snapshots
+- Invitations and notifications
+- Public discovery and document likes
+- Realtime subscriptions (sections/comments/typing/presence/notifications)
+- Live remote cursor streaming with Socket.IO
+- Generated GraphQL docs using Magidoc
 
 ## Tech Stack
 
-- Backend: Node.js + Express + Apollo Server + PostgreSQL
-- Frontend: Next.js + React + Apollo Client
-- Real-time: GraphQL Subscriptions over WebSocket
-- Auth: JWT (register/login UI in frontend, plus optional manual token override)
+- Backend: Node.js, Express, Apollo Server, graphql-ws, PostgreSQL
+- Frontend: Next.js (App Router), React, Apollo Client, TipTap
+- Realtime: GraphQL subscriptions + Socket.IO
+- Auth: JWT (Bearer)
 
-## Features
+## Architecture
 
-- User authentication and profile management
-- Document CRUD operations
-- Document sharing with collaborators
-- Comments on documents
-- Real-time subscriptions for document updates and new comments
-- Built-in login/register workflow in the frontend
-- Search, pagination, and sorting for document discovery
-- Collaborator management (share and unshare by email)
-- Frontend collaborative workspace:
-  - Document list (owned and shared)
-  - Search and sort controls
-  - Editor panel
-  - Comments panel
+1. Frontend sends GraphQL queries/mutations over HTTP and subscriptions over WebSocket.
+2. Backend builds request context (current user + DataLoaders).
+3. Resolvers validate input and permissions, then call model layer.
+4. Models execute SQL on PostgreSQL.
+5. PubSub and Socket.IO emit realtime events back to clients.
+
+Main backend flow:
+
+- back/src/index.js
+- back/src/graphql/context.js
+- back/src/graphql/resolvers.js
+- back/src/models/*
+
+Main frontend flow:
+
+- front/lib/apollo.js
+- front/lib/graphql.js
+- front/components/WorkspaceApp.js
+
+## Features Implemented
+
+### Auth and account
+
+- Register, login, profile update, password change
+- Email verification flow
+- Password reset flow (request + token reset)
+- Route guards via Next.js middleware
+
+### Documents and sections
+
+- Create/update/delete documents
+- Public/private document visibility
+- Section tree: root sections + one level of subsections
+- Section reorder, title updates, content updates
+- String-operation based section autosave (`INSERT`, `DELETE`, `REPLACE`)
+
+### Collaboration
+
+- Share by invitation (`VIEW` / `EDIT`)
+- Approve/decline invitations
+- Remove collaborator access
+- Presence and typing status by document/section
+
+### Social and activity
+
+- Like/unlike public documents
+- Notification center for likes and invitation events
+- Mark notifications as read
+
+### Realtime
+
+- GraphQL subscriptions:
+  - `sectionUpdated(documentId)`
+  - `commentAdded(sectionId)`
+  - `userTyping(documentId)`
+  - `userPresenceChanged(documentId)`
+  - `userNotificationReceived`
+- Socket.IO cursor channel for low-latency remote cursor updates
+
+### API docs
+
+- Magidoc static site generated from the schema
+- Served by backend at /docs/graphql
 
 ## Project Structure
 
-```
+```text
 back/
+  magidoc.mjs
+  scripts/
+    setup-postgres.js
   src/
     config/
       env.js
     db/
       postgres.js
+      schema.js
+      schema.sql
     graphql/
       context.js
+      loaders.js
       pubsub.js
       resolvers.js
       schema.js
       typeDefs.js
     models/
+      _shared.js
       User.js
       Document.js
+      Section.js
       Comment.js
       Share.js
+      Invitation.js
+      Notification.js
+      Like.js
+      Version.js
+    realtime/
+      cursorSocket.js
     utils/
       auth.js
+      email.js
       permissions.js
     index.js
 
 front/
   app/
-    globals.css
+    auth/
+      check-email/page.js
+      forgot-password/page.js
+      reset-password/page.js
+      verify/page.js
+      page.js
+    doc/[id]/page.js
+    discover/page.js
+    documents/page.js
+    invitations/page.js
+    profile/page.js
+    settings/page.js
     layout.js
     page.js
+    loading.js
+    error.js
+    not-found.js
   components/
+    AppShell.js
     AuthPanel.js
-    CommentsPane.js
-    DocumentList.js
+    AuthScreen.js
+    DashboardPage.js
+    DocumentsPage.js
+    DiscoverPage.js
+    WorkspaceApp.js
     EditorPane.js
-    TokenPanel.js
+    RichTextEditor.js
+    SectionsTree.js
+    SectionItem.js
+    CommentsPane.js
+    VersionPanel.js
+    NotificationCenter.js
+    InvitationsPage.js
+    ProfilePage.js
+    SettingsPage.js
+    SidebarNavigation.js
+    ThemeToggle.js
+    TabsPanel.js
+    plus support pages/components
   lib/
     apollo.js
     graphql.js
+    authToken.js
+    useAuthSession.js
+    uiErrors.js
+    richTextDoc.js
+    cursorSocket.js
+    cursorColors.js
+  middleware.js
 ```
 
 ## Getting Started
 
-### 1. Install dependencies
+## 1. Install dependencies
 
 ```bash
-cd back && npm install
-cd ../front && npm install
+cd back
+npm install
+
+cd ../front
+npm install
 ```
 
-### 2. Configure environment variables
+## 2. Configure backend env
 
-Copy `back/.env.example` to `back/.env` and update values:
+Copy back/.env.example to back/.env.
+
+Required:
+
+```env
+POSTGRES_URI=postgres://postgres:postgres@127.0.0.1:5432/syncnote
+JWT_SECRET=change_this_secret
+```
+
+Common optional values:
 
 ```env
 PORT=4000
-POSTGRES_URI=postgres://postgres:postgres@127.0.0.1:5432/syncnote
-# Optional: admin DB used only by npm run db:setup
-# POSTGRES_ADMIN_URI=postgres://postgres:postgres@127.0.0.1:5432/postgres
-JWT_SECRET=change_this_secret
+APP_URL=http://localhost:3000
 JWT_EXPIRES_IN=7d
 CORS_ORIGIN=http://localhost:3000
-# Optional in production, defaults to false in production and true otherwise
-# GRAPHQL_INTROSPECTION=false
+GRAPHQL_INTROSPECTION=true
+GRAPHQL_DOCS_ENABLED=true
+
+# SMTP (enable real verification/reset emails)
+SMTP_HOST=
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=
+SMTP_PASS=
+SMTP_FROM=SyncNote <no-reply@syncnote.local>
 ```
 
-Initialize PostgreSQL database and schema:
+## 3. Configure frontend env
+
+Copy front/.env.local.example to front/.env.local.
+
+```env
+NEXT_PUBLIC_GRAPHQL_HTTP=http://localhost:4000/graphql
+NEXT_PUBLIC_GRAPHQL_WS=ws://localhost:4000/graphql
+
+# Optional cursor socket override
+# NEXT_PUBLIC_CURSOR_SOCKET_URL=http://localhost:4000
+# NEXT_PUBLIC_CURSOR_SOCKET_PATH=/cursor
+```
+
+## 4. Initialize database schema
 
 ```bash
 cd back
 npm run db:setup
 ```
 
-The schema is defined in `back/src/db/schema.sql` and applied by both backend startup and `db:setup`.
+## 5. Run services
 
-### 3. Configure frontend environment
-
-Copy `front/.env.local.example` to `front/.env.local`:
-
-```env
-NEXT_PUBLIC_GRAPHQL_HTTP=http://localhost:4000/graphql
-NEXT_PUBLIC_GRAPHQL_WS=ws://localhost:4000/graphql
-```
-
-### 4. Run backend
+Backend:
 
 ```bash
 cd back
 npm run dev
 ```
 
-GraphQL endpoint:
-
-- HTTP: `http://localhost:4000/graphql`
-- WS: `ws://localhost:4000/graphql`
-
-Health endpoint:
-
-- `http://localhost:4000/health`
-
-### 5. Run frontend
-
-In a second terminal:
+Frontend:
 
 ```bash
 cd front
 npm run dev
 ```
 
-Frontend URL:
-
-- `http://localhost:3000`
-- First page is auth at `http://localhost:3000/auth` (workspace redirects there when not authenticated)
-
-### Run both backend and frontend together (Windows)
-
-From project root, run:
+Windows helper:
 
 ```bat
 run-servers.bat
 ```
 
-This installs dependencies in `back` and `front`, then opens two terminals:
-- backend: `npm run dev` in `back`
-- frontend: `npm run dev` in `front`
+## Endpoints
 
-You authenticate directly in the app using register/login.
+- GraphQL HTTP: http://localhost:4000/graphql
+- GraphQL WS: ws://localhost:4000/graphql
+- Health: http://localhost:4000/health
+- API docs UI: http://localhost:4000/docs/graphql
 
-## GraphQL API
+## GraphQL Examples (Current Schema)
 
-GraphQL endpoint:
-
-- HTTP: `http://localhost:4000/graphql`
-- WS: `ws://localhost:4000/graphql`
-
-Backend-only GraphQL documentation endpoints:
-
-- `GET /docs/graphql` (Magidoc searchable web UI)
-
-These docs are generated from the backend schema and do not depend on the frontend.
-
-Generate docs locally:
-
-```bash
-cd back
-npm run docs:generate
-```
-
-Optional local docs tooling:
-
-- `npm run docs:dev` for hot-reload docs development
-- `npm run docs:preview` to preview generated docs on port 4100
-
-Production note:
-
-- Docs can be disabled with `GRAPHQL_DOCS_ENABLED=false`.
-
-## Example Flow
-
-### Register user
+Register:
 
 ```graphql
-mutation {
+mutation Register {
   register(name: "Alice", email: "alice@example.com", password: "password123") {
     token
     user {
       id
       name
       email
+      emailVerified
     }
   }
 }
 ```
 
-### Create document
+Create document:
 
 ```graphql
-mutation {
-  createDocument(title: "Team Notes", content: "Initial content") {
+mutation CreateDocument {
+  createDocument(title: "Team Notes", content: "Initial content", isPublic: false) {
+    id
+    title
+    isPublic
+    updatedAt
+  }
+}
+```
+
+Get sections:
+
+```graphql
+query GetSections {
+  getSections(documentId: "1") {
     id
     title
     content
-    owner {
-      id
-      name
-    }
+    parentId
+    order
   }
 }
 ```
 
-### Add comment
+Add comment (section-scoped):
 
 ```graphql
-mutation {
-  addComment(documentId: "<doc-id>", text: "Looks good") {
+mutation AddComment {
+  addComment(sectionId: "10", content: "Looks good") {
     id
     text
     createdAt
@@ -234,36 +332,63 @@ mutation {
 }
 ```
 
-### Subscribe to document updates
+Subscribe to section updates:
 
 ```graphql
-subscription {
-  documentUpdated(documentId: "<doc-id>") {
+subscription OnSectionUpdated {
+  sectionUpdated(documentId: "1") {
     id
     title
     content
     updatedAt
+    updatedBy {
+      id
+      name
+    }
   }
 }
 ```
 
-## Auth
+## API Documentation (Magidoc)
 
-For authenticated operations, pass a bearer token in HTTP headers:
+Generate static docs:
 
-```http
-Authorization: Bearer <token>
+```bash
+cd back
+npm run docs:generate
 ```
 
-For WebSocket subscriptions, provide `Authorization` in connection params.
+Dev mode docs:
 
-Frontend note:
+```bash
+npm run docs:dev
+```
 
-- Auth screens are included on the `/auth` page.
-- Manual token input is removed from the frontend UI.
+Preview generated docs:
 
-## Notes
+```bash
+npm run docs:preview
+```
 
-- Owner always has full access to their documents.
-- Shared users can be granted `VIEW` or `EDIT` permission.
-- Comment and document update subscriptions only deliver events to users with access to that document.
+Note: If docs are enabled but not generated, /docs/graphql returns a 503 guidance response.
+
+## Auth Notes
+
+- Use Authorization: Bearer <token> for authenticated GraphQL operations.
+- Subscriptions send bearer token via WebSocket connectionParams.
+- Frontend middleware protects private routes and redirects unauthenticated users to /auth.
+
+## Production Checklist
+
+- Set NODE_ENV=production
+- Set GRAPHQL_INTROSPECTION=false
+- Set GRAPHQL_DOCS_ENABLED=false unless docs are intentionally public
+- Set strict CORS_ORIGIN (no wildcard)
+- Configure SMTP credentials for real transactional email
+- Use secure JWT secret and managed PostgreSQL credentials
+
+## Known Limitations
+
+- No automated test suite is configured yet.
+- Linting is minimal (back has placeholder lint script).
+- Section initialization (Section.ensureDefaults) may be a hotspot in some heavy list workloads.
