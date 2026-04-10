@@ -36,6 +36,29 @@ async function run() {
   try {
     await connectPostgres();
 
+    // Ensure serial sequences are aligned with current max ids to avoid duplicate PK errors
+    const seqTables = [
+      "users",
+      "documents",
+      "sections",
+      "comments",
+      "shares",
+      "collaboration_invitations"
+    ];
+
+    for (const tbl of seqTables) {
+      // Use pg_get_serial_sequence to find the sequence name for the table's id column.
+      // If the table has no serial sequence this will return null and we skip.
+      try {
+        await query(
+          `DO $$\n          DECLARE seq TEXT; maxid BIGINT;\n          BEGIN\n            seq := pg_get_serial_sequence($1, 'id');\n            IF seq IS NOT NULL THEN\n              EXECUTE format('SELECT COALESCE(MAX(id), 0) FROM %I', $1) INTO maxid;\n              PERFORM setval(seq, maxid, true);\n            END IF;\n          END$$;`,
+          [tbl]
+        );
+      } catch (e) {
+        // ignore sequence adjustment errors for non-serial tables
+      }
+    }
+
     // Make the seed idempotent by removing any previous seeded users
     const seedEmails = [
       "alice@example.com",
@@ -51,65 +74,65 @@ async function run() {
     const carolId = await insertUser("Carol", "carol@example.com", "password123", true);
     const daveId = await insertUser("Dave", "dave@example.com", "password123", false);
 
-    // Create documents (some public, some private)
-    const publicDocId = await insertDocument(
-      "Public Notes",
-      "This is a public document. Feel free to read and share.",
-      true,
-      aliceId
-    );
+    // Create 15 documents with varying visibility, owners and content
+    const owners = [aliceId, bobId, carolId, daveId];
+    const createdDocIds = [];
 
-    const teamPlanId = await insertDocument(
-      "Team Plan",
-      "Team plan for Q2: goals, milestones, responsibilities.",
-      false,
-      bobId
-    );
+    for (let i = 1; i <= 15; i += 1) {
+      const owner = owners[(i - 1) % owners.length];
+      const title = `Sample Document ${i}`;
+      const isPublic = i % 3 === 0; // every 3rd doc is public
+      const content = `Sample Document ${i} owned by user ${owner}.\n\nThis document contains example paragraphs, bullet lists, and small structured content for testing the editor and search.`;
 
-    const roadmapId = await insertDocument(
-      "Project Roadmap",
-      "Roadmap: milestones and checkpoints for the upcoming release.",
-      true,
-      carolId
-    );
+      const docId = await insertDocument(title, content, isPublic, owner);
+      createdDocIds.push(docId);
 
-    const privateDiaryId = await insertDocument(
-      "Private Diary",
-      "Personal notes and drafts (private).",
-      false,
-      daveId
-    );
+      // Insert a section with structured JSON content
+      const sectionContentDoc = {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [{ type: "text", text: `Overview for ${title}` }]
+          },
+          {
+            type: "paragraph",
+            content: [{ type: "text", text: `Details: This is a seeded paragraph for ${title}.` }]
+          }
+        ]
+      };
 
-    // Add collaborators (shares)
-    await addShare(teamPlanId, aliceId, "EDIT");
-    await addShare(teamPlanId, carolId, "VIEW");
+      await query(
+        `INSERT INTO sections (document_id, title, content, content_doc, parent_id, order_index, type)
+         VALUES ($1, $2, $3, $4::jsonb, NULL, 0, $5)`,
+        [docId, "Overview", content.split("\n")[0], JSON.stringify(sectionContentDoc), "notes"]
+      );
 
-    await addShare(roadmapId, bobId, "EDIT");
-    await addShare(publicDocId, bobId, "VIEW");
+      // Add a version snapshot for some documents
+      if (i % 5 === 0) {
+        await query(
+          `INSERT INTO versions (document_id, snapshot, created_by)
+           VALUES ($1, $2::jsonb, $3)`,
+          [docId, JSON.stringify({ title, content: `Initial snapshot for ${title}` }), owner]
+        );
+      }
 
-    // Optionally: add a section with structured JSON content for one doc
-    const contentDoc = {
-      type: "doc",
-      content: [
-        {
-          type: "paragraph",
-          content: [{ type: "text", text: "Structured section content for Team Plan." }]
+      // Add collaborators deterministically for certain docs
+      if (i % 4 === 0) {
+        // grant EDIT to the next owner in rotation
+        const collaborator = owners[(i % owners.length)];
+        if (String(collaborator) !== String(owner)) {
+          await addShare(docId, collaborator, "EDIT");
         }
-      ]
-    };
+      }
 
-    await query(
-      `INSERT INTO sections (document_id, title, content, content_doc, parent_id, order_index, type)
-       VALUES ($1, $2, $3, $4::jsonb, NULL, 0, $5)`,
-      [teamPlanId, "Overview", "Team plan overview", JSON.stringify(contentDoc), "notes"]
-    );
-
-    // Create a version snapshot for one document
-    await query(
-      `INSERT INTO versions (document_id, snapshot, created_by)
-       VALUES ($1, $2::jsonb, $3)`,
-      [publicDocId, JSON.stringify({ title: "Public Notes", content: "Initial snapshot" }), aliceId]
-    );
+      if (i % 6 === 0) {
+        // grant VIEW to alice for every 6th doc (if not owner)
+        if (String(aliceId) !== String(owner)) {
+          await addShare(docId, aliceId, "VIEW");
+        }
+      }
+    }
 
     // Summary output
     // eslint-disable-next-line no-console
@@ -117,7 +140,7 @@ async function run() {
     // eslint-disable-next-line no-console
     console.log(`- Users: Alice(${aliceId}), Bob(${bobId}), Carol(${carolId}), Dave(${daveId})`);
     // eslint-disable-next-line no-console
-    console.log(`- Documents: public(${publicDocId}), team(${teamPlanId}), roadmap(${roadmapId}), private(${privateDiaryId})`);
+    console.log(`- Documents created: ${createdDocIds.length} (IDs: ${createdDocIds.join(", ")})`);
 
     process.exit(0);
   } catch (err) {
