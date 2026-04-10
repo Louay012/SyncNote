@@ -158,30 +158,32 @@ You authenticate directly in the app using register/login.
 
 ## GraphQL API
 
-### Queries
+GraphQL endpoint:
 
-- `document(id: ID!)`
-- `myDocuments(limit, offset, sortBy, sortDirection)`
-- `sharedWithMeDocuments(limit, offset, sortBy, sortDirection)`
-- `searchDocuments(keyword, limit, offset, sortBy, sortDirection)`
-- `me`
+- HTTP: `http://localhost:4000/graphql`
+- WS: `ws://localhost:4000/graphql`
 
-### Mutations
+Backend-only GraphQL documentation endpoints:
 
-- `register(name, email, password)`
-- `login(email, password)`
-- `updateProfile(name)`
-- `createDocument(title, content)`
-- `updateDocument(id, title, content)`
-- `deleteDocument(id)`
-- `addComment(documentId, text)`
-- `shareDocument(documentId, userEmail, permission)`
-- `unshareDocument(documentId, userEmail)`
+- `GET /docs/graphql` (Magidoc searchable web UI)
 
-### Subscriptions
+These docs are generated from the backend schema and do not depend on the frontend.
 
-- `documentUpdated(documentId: ID!)`
-- `commentAdded(documentId: ID!)`
+Generate docs locally:
+
+```bash
+cd back
+npm run docs:generate
+```
+
+Optional local docs tooling:
+
+- `npm run docs:dev` for hot-reload docs development
+- `npm run docs:preview` to preview generated docs on port 4100
+
+Production note:
+
+- Docs can be disabled with `GRAPHQL_DOCS_ENABLED=false`.
 
 ## Example Flow
 

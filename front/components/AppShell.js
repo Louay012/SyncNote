@@ -108,7 +108,7 @@ export default function AppShell({
   }, [viewportMode]);
 
   useEffect(() => {
-    if (!isOpen) {
+    if (!isCompactViewport || !isOpen) {
       return undefined;
     }
 
@@ -120,7 +120,7 @@ export default function AppShell({
 
     window.addEventListener("keydown", onEscape);
     return () => window.removeEventListener("keydown", onEscape);
-  }, [isEditorVariant, isOpen]);
+  }, [isCompactViewport, isOpen]);
 
   function handleToggleSidebar() {
     setIsOpen((current) => {
@@ -133,7 +133,7 @@ export default function AppShell({
   }
 
   function handleNavigate() {
-    if (isCompactViewport || isEditorVariant) {
+    if (isCompactViewport) {
       setIsOpen(false);
     }
   }
@@ -173,7 +173,7 @@ export default function AppShell({
       <SidebarNavigation
         variant={variant}
         isOpen={isOpen}
-        overlayMode={isCompactViewport || isEditorVariant}
+        overlayMode={isCompactViewport}
         onToggleSidebar={handleToggleSidebar}
         onNavigate={handleNavigate}
         onLogout={onLogout}

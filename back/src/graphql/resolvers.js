@@ -1066,40 +1066,6 @@ export const resolvers = {
       return comment;
     },
 
-    shareDocument: async (
-      _,
-      { documentId, userEmail, permission = "EDIT" },
-      contextValue
-    ) => {
-      const user = requireAuth(contextValue);
-      ensureObjectId(documentId, "document id");
-
-      await ensureDocumentOwner(user.id, documentId);
-
-      const normalizedEmail = normalizeEmail(userEmail);
-      requireNonEmpty(normalizedEmail, "User email");
-
-      const collaborator = await User.findOne({ email: normalizedEmail });
-
-      if (!collaborator) {
-        throw new Error("Collaborator not found");
-      }
-
-      if (String(collaborator.id) === String(user.id)) {
-        throw new Error("Owner already has access");
-      }
-
-      if (!["VIEW", "EDIT"].includes(permission)) {
-        throw new Error("Permission must be VIEW or EDIT");
-      }
-
-      return Share.findOneAndUpdate(
-        { document: documentId, user: collaborator.id },
-        { permission },
-        { new: true, upsert: true, setDefaultsOnInsert: true }
-      );
-    },
-
     unshareDocument: async (_, { documentId, userEmail }, contextValue) => {
       const user = requireAuth(contextValue);
       ensureObjectId(documentId, "document id");

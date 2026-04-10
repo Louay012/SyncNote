@@ -40,7 +40,7 @@ import {
   RESTORE_VERSION,
   SAVE_VERSION,
   SECTION_UPDATED,
-  SHARE_DOCUMENT,
+  SEND_COLLABORATION_INVITE,
   UNSHARE_DOCUMENT,
   UPDATE_DOCUMENT,
   UPDATE_PRESENCE,
@@ -414,7 +414,7 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
   const [saveVersion, { loading: savingVersion }] = useMutation(SAVE_VERSION);
   const [restoreVersion, { loading: restoringVersion }] = useMutation(RESTORE_VERSION);
   const [addComment, { loading: postingComment }] = useMutation(ADD_COMMENT);
-  const [shareDocument, { loading: sharingDocument }] = useMutation(SHARE_DOCUMENT);
+  const [sendInvite, { loading: sharingDocument }] = useMutation(SEND_COLLABORATION_INVITE);
   const [unshareDocument, { loading: unsharingDocument }] =
     useMutation(UNSHARE_DOCUMENT);
   const [updateTypingStatus] = useMutation(UPDATE_TYPING_STATUS);
@@ -1226,7 +1226,7 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
 
     setModalError("");
     try {
-      await shareDocument({
+      await sendInvite({
         variables: {
           documentId: activeId,
           userEmail: collabEmail.trim(),
@@ -1235,7 +1235,7 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
       });
 
       await refetchDoc();
-      setNotice(`Shared with ${collabEmail.trim()} as ${collabPermission}`);
+      setNotice(`Invitation sent to ${collabEmail.trim()} as ${collabPermission}`);
       setCollabEmail("");
     } catch (error) {
       setModalError(toFriendlyError(error));
@@ -1518,8 +1518,8 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
 
                 {modal.type === "share-document" ? (
                   <>
-                    <h3>Share Document</h3>
-                    <p className="list-meta">Invite collaborators and manage access.</p>
+                    <h3>Invite Collaborators</h3>
+                    <p className="list-meta">Collaborators are added only after they approve an invitation.</p>
                     <div className="doc-visibility-control">
                       <label htmlFor="doc-visibility-select">Document visibility</label>
                       <select
@@ -1556,7 +1556,7 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
                         type="submit"
                         disabled={!activeDoc || sharingDocument || unsharingDocument}
                       >
-                        {sharingDocument ? "Sharing..." : "Share"}
+                        {sharingDocument ? "Sending..." : "Send Invite"}
                       </button>
                     </form>
 

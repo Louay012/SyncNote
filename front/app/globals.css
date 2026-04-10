@@ -539,7 +539,9 @@ body {
 }
 
 .app-shell {
-  width: min(1500px, calc(100vw - 24px));
+  --shell-width: min(1500px, calc(100vw - 24px));
+  width: var(--shell-width);
+  min-height: calc(100vh - 36px);
   margin: 12px auto 24px;
   display: grid;
   grid-template-columns: 280px 1fr;
@@ -557,7 +559,8 @@ body {
 }
 
 .app-shell.app-shell-editor {
-  width: min(1620px, calc(100vw - 24px));
+  --shell-width: min(1620px, calc(100vw - 24px));
+  width: var(--shell-width);
 }
 
 .app-shell.app-shell-editor.sidebar-open {
@@ -729,6 +732,7 @@ body {
   display: grid;
   gap: 12px;
   min-width: 0;
+  min-height: calc(100vh - 36px);
 }
 
 .app-shell.app-shell-compact.sidebar-open .app-main {
@@ -2789,10 +2793,42 @@ button:disabled {
   }
 }
 
+@media (min-width: 1025px) {
+  .app-shell .app-sidebar {
+    position: fixed;
+    top: 12px;
+    left: calc((100vw - var(--shell-width)) / 2);
+    width: 280px;
+    height: calc(100vh - 24px);
+    max-height: calc(100vh - 24px);
+    transform: none;
+    z-index: 30;
+  }
+
+  .app-shell .app-main {
+    grid-column: 2 / -1;
+    min-width: 0;
+  }
+
+  .app-shell.sidebar-closed .app-sidebar {
+    width: 92px;
+  }
+}
+
 @media (max-width: 1024px) {
   .notification-panel {
     right: 0;
     width: min(360px, calc(100vw - 24px));
+  }
+
+  .notification-item {
+    min-height: 106px;
+    padding: 10px;
+  }
+
+  .notification-item small {
+    display: block;
+    line-height: 1.36;
   }
 
   .app-header-nav-toggle {
@@ -2809,6 +2845,7 @@ button:disabled {
   .app-shell.app-shell-editor.sidebar-closed {
     grid-template-columns: 1fr;
     width: min(100vw, calc(100vw - 12px));
+    min-height: calc(100vh - 24px);
     margin: 8px auto 16px;
     gap: 10px;
   }
@@ -2816,6 +2853,7 @@ button:disabled {
   .app-shell .app-main {
     width: 100%;
     min-width: 0;
+    min-height: calc(100vh - 24px);
   }
 
   .app-shell.app-shell-compact .app-sidebar {
@@ -2988,6 +3026,11 @@ button:disabled {
 }
 
 @media (max-width: 767px) {
+  .notification-item {
+    min-height: 0;
+    padding: 8px;
+  }
+
   .notification-panel {
     position: fixed;
     top: 74px;
