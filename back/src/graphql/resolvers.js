@@ -391,14 +391,51 @@ export const resolvers = {
       return dateValue(ast.value);
     }
   }),
+  JSON: new GraphQLScalarType({
+    name: "JSON",
+    description: "Arbitrary JSON value",
+    serialize(value) {
+      return value;
+    },
+    parseValue(value) {
+      return value;
+    },
+    parseLiteral(ast) {
+      function parseAst(node) {
+        switch (node.kind) {
+          case Kind.STRING:
+          case Kind.BOOLEAN:
+          case Kind.INT:
+          case Kind.FLOAT:
+            return node.value;
+          case Kind.OBJECT: {
+            const obj = Object.create(null);
+            for (const field of node.fields) {
+              obj[field.name.value] = parseAst(field.value);
+            }
+            return obj;
+          }
+          case Kind.LIST:
+            return node.values.map(parseAst);
+          case Kind.NULL:
+            return null;
+          default:
+            return null;
+        }
+      }
+
+      return parseAst(ast);
+    }
+  }),
 
   Query: {
     me: async (_, __, contextValue) => contextValue.currentUser,
 
     document: async (_, { id }, contextValue) => {
-      const user = requireAuth(contextValue);
+      // Allow unauthenticated access for public documents.
+      const user = contextValue.currentUser || null;
       ensureObjectId(id, "document id");
-      await ensureDocumentAccess(user.id, id);
+      await ensureDocumentAccess(user ? user.id : null, id);
 
       const document = await Document.findById(id);
       if (!document) {
@@ -458,9 +495,9 @@ export const resolvers = {
     },
 
     getSections: async (_, { documentId }, contextValue) => {
-      const user = requireAuth(contextValue);
+      const user = contextValue.currentUser || null;
       ensureObjectId(documentId, "document id");
-      await ensureDocumentAccess(user.id, documentId);
+      await ensureDocumentAccess(user ? user.id : null, documentId);
 
       const document = await Document.findById(documentId);
       if (!document) {
@@ -472,9 +509,9 @@ export const resolvers = {
     },
 
     getVersions: async (_, { documentId }, contextValue) => {
-      const user = requireAuth(contextValue);
+      const user = contextValue.currentUser || null;
       ensureObjectId(documentId, "document id");
-      await ensureDocumentAccess(user.id, documentId);
+      await ensureDocumentAccess(user ? user.id : null, documentId);
       return Version.findByDocument(documentId);
     },
 
@@ -749,6 +786,10 @@ export const resolvers = {
         throw new Error("You do not have permission to edit this document");
       }
 
+      if (typeof isPublic === "boolean") {
+        await ensureDocumentOwner(user.id, id);
+      }
+
       const updates = {};
 
       if (typeof title === "string") {
@@ -835,6 +876,56 @@ export const resolvers = {
       return payload;
     },
 
+    updateSectionContent: async (_, { sectionId, contentDoc }, contextValue) => {
+      const user = requireAuth(contextValue);
+      ensureObjectId(sectionId, "section id");
+      await ensureSectionEditAccess(user.id, sectionId);
+
+      const currentSection = await Section.findById(sectionId);
+      if (!currentSection) {
+        throw new Error("Section not found");
+      }
+
+      try {
+        const serialized = JSON.stringify(contentDoc || {});
+        console.debug("resolvers.updateSectionContent: incoming", { sectionId, contentDocLength: serialized.length });
+      } catch (e) {}
+
+      // Let Section.normalizeRichContent enforce shape/size validation.
+      const updatedSection = await Section.updateById(sectionId, { content: contentDoc });
+
+      try {
+        console.debug("resolvers.updateSectionContent: saved", { sectionId, savedContentLength: String(updatedSection?.content || "").length });
+      } catch (e) {}
+
+      if (!updatedSection) {
+        throw new Error("Section not found");
+      }
+
+      await syncLegacyDocumentContent(updatedSection.documentId);
+
+      const payload = withActor(updatedSection, user.id);
+      const presenceState = touchPresence({
+        documentId: updatedSection.documentId,
+        user,
+        sectionId: updatedSection.id,
+        sectionTitle: updatedSection.title
+      });
+
+      await Promise.all([
+        pubsub.publish(EVENTS.SECTION_UPDATED, {
+          sectionUpdated: payload,
+          documentId: updatedSection.documentId
+        }),
+        pubsub.publish(EVENTS.USER_PRESENCE_CHANGED, {
+          userPresenceChanged: presenceState,
+          documentId: updatedSection.documentId
+        })
+      ]);
+
+      return payload;
+    },
+
     updateSection: async (_, { sectionId, title, content }, contextValue) => {
       const user = requireAuth(contextValue);
       ensureObjectId(sectionId, "section id");
@@ -854,7 +945,14 @@ export const resolvers = {
         throw new Error("At least one field (title or content) must be provided");
       }
 
+      try {
+        console.debug("resolvers.updateSection: saving section", { sectionId, hasContent: Object.hasOwn(updates, 'content') });
+      } catch (e) {}
+
       const updatedSection = await Section.updateById(sectionId, updates);
+      try {
+        console.debug("resolvers.updateSection: saved", { sectionId, contentLength: String(updatedSection?.content || "").length });
+      } catch (e) {}
       if (!updatedSection) {
         throw new Error("Section not found");
       }
@@ -898,6 +996,9 @@ export const resolvers = {
       }
 
       const normalizedBaseContent = validateSectionContent(baseContent);
+      try {
+        console.debug("resolvers.applySectionOperation: incoming", { sectionId, baseContentLength: String(baseContent || "").length, operation });
+      } catch (e) {}
       if (String(currentSection.content || "") !== normalizedBaseContent) {
         throw new Error("Section content is out of date");
       }
@@ -906,9 +1007,33 @@ export const resolvers = {
         applyStringOperation(normalizedBaseContent, operation)
       );
 
+      // Defensive guard: prevent accidental blanking where an operation would
+      // replace a previously non-empty rich doc with an empty paragraph doc.
+      try {
+        const EMPTY_DOC_SHAPE = JSON.stringify({ type: "doc", content: [{ type: "paragraph" }] });
+        if (
+          String(nextContent || "").trim() === EMPTY_DOC_SHAPE &&
+          String(normalizedBaseContent || "").trim() !== EMPTY_DOC_SHAPE
+        ) {
+          console.warn("resolvers.applySectionOperation: rejecting operation that would blank section", { sectionId });
+          throw new Error("Operation rejected: would remove section content (preventing accidental data loss)");
+        }
+      } catch (e) {
+        // If we threw above, rethrow to abort the operation; otherwise ignore errors.
+        if (e && String(e.message || "").startsWith("Operation rejected")) {
+          throw e;
+        }
+      }
+      try {
+        console.debug("resolvers.applySectionOperation: computed nextContent length", { sectionId, nextContentLength: String(nextContent || "").length });
+      } catch (e) {}
+
       const updatedSection = await Section.updateById(sectionId, {
         content: nextContent
       });
+      try {
+        console.debug("resolvers.applySectionOperation: saved", { sectionId, savedContentLength: String(updatedSection?.content || "").length });
+      } catch (e) {}
 
       if (!updatedSection) {
         throw new Error("Section not found");

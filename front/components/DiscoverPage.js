@@ -15,6 +15,7 @@ import {
   GET_ME,
   LIKE_DOCUMENT,
   SEARCH_OTHER_USERS_DOCUMENTS_BY_TITLE,
+  UPDATE_DOCUMENT,
   UNLIKE_DOCUMENT
 } from "@/lib/graphql";
 import { toFriendlyError } from "@/lib/uiErrors";
@@ -40,6 +41,7 @@ function DiscoverContent({ token, onLogout }) {
   const [sortBy, setSortBy] = useState("UPDATED_AT");
   const [sortDirection, setSortDirection] = useState("DESC");
   const [pendingLikeId, setPendingLikeId] = useState("");
+  const [pendingVisibilityId, setPendingVisibilityId] = useState("");
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -84,6 +86,7 @@ function DiscoverContent({ token, onLogout }) {
 
   const [likeDocument] = useMutation(LIKE_DOCUMENT);
   const [unlikeDocument] = useMutation(UNLIKE_DOCUMENT);
+  const [updateDocument] = useMutation(UPDATE_DOCUMENT);
 
   const listData = data?.searchOtherUsersDocumentsByTitle;
   const items = listData?.items || [];
@@ -91,6 +94,10 @@ function DiscoverContent({ token, onLogout }) {
 
   async function handleToggleLike(documentItem) {
     if (!documentItem?.id) {
+      return;
+    }
+
+    if (String(documentItem.owner?.id || "") === String(meData?.me?.id || "")) {
       return;
     }
 
@@ -111,6 +118,28 @@ function DiscoverContent({ token, onLogout }) {
       await refetch();
     } finally {
       setPendingLikeId("");
+    }
+  }
+
+  async function handleChangeVisibility(documentId, nextIsPublic) {
+    const safeDocumentId = String(documentId || "");
+    if (!safeDocumentId) {
+      return;
+    }
+
+    setPendingVisibilityId(safeDocumentId);
+
+    try {
+      await updateDocument({
+        variables: {
+          id: safeDocumentId,
+          isPublic: Boolean(nextIsPublic)
+        }
+      });
+
+      await refetch();
+    } finally {
+      setPendingVisibilityId("");
     }
   }
 
@@ -156,7 +185,7 @@ function DiscoverContent({ token, onLogout }) {
 
       {!activeSearch ? (
         <section className="panel notice-panel">
-          <p>Start typing words or a sentence to discover public documents from other users.</p>
+          <p>Start typing words or a sentence to search your documents, shared documents, and public documents.</p>
         </section>
       ) : null}
 
@@ -173,14 +202,53 @@ function DiscoverContent({ token, onLogout }) {
         <section className="discover-grid">
           {items.map((item) => {
             const isBusy = pendingLikeId === String(item.id);
+            const isOwner = String(item.owner?.id || "") === String(meData?.me?.id || "");
+            const visibilityBusy = pendingVisibilityId === String(item.id);
+
+            function openDocument() {
+              const id = String(item.id || "");
+              if (id) {
+                router.push(`/doc/${id}`);
+              }
+            }
 
             return (
-              <article className="panel discover-card" key={item.id}>
+              <article
+                className="panel discover-card"
+                key={item.id}
+                role="button"
+                tabIndex={0}
+                onClick={openDocument}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    openDocument();
+                  }
+                }}
+                style={{ cursor: "pointer" }}
+              >
                 <div className="discover-card-content">
                   <div className="discover-doc-meta">
                     <h3>{item.title}</h3>
                     <p className="list-meta">Owner: {item.owner?.name || "Unknown"}</p>
+                    <p className="list-meta">Visibility: {item.isPublic ? "Public" : "Private"}</p>
                     <p className="list-meta">Updated: {new Date(item.updatedAt).toLocaleString()}</p>
+                    {isOwner ? (
+                      <div className="doc-visibility-control">
+                        <label htmlFor={`discover-visibility-${item.id}`}>Document visibility</label>
+                        <select
+                          id={`discover-visibility-${item.id}`}
+                          value={item.isPublic ? "PUBLIC" : "PRIVATE"}
+                          onChange={(event) =>
+                            handleChangeVisibility(item.id, event.target.value === "PUBLIC")
+                          }
+                          disabled={visibilityBusy}
+                        >
+                          <option value="PRIVATE">Private</option>
+                          <option value="PUBLIC">Public</option>
+                        </select>
+                      </div>
+                    ) : null}
                   </div>
 
                   <div className="discover-love-wrap">
@@ -188,7 +256,7 @@ function DiscoverContent({ token, onLogout }) {
                       type="button"
                       className={item.likedByMe ? "discover-love-btn is-loved" : "discover-love-btn"}
                       onClick={() => handleToggleLike(item)}
-                      disabled={isBusy}
+                      disabled={isBusy || isOwner}
                       aria-label={item.likedByMe ? "Remove love" : "Love document"}
                     >
                       <LoveIcon />

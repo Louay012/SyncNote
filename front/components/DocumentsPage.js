@@ -306,7 +306,7 @@ function DocumentsContent({ token, onLogout }) {
       {shareDocumentId ? (
         <section className="modal-backdrop" role="presentation">
           <article className="panel modal-card" role="dialog" aria-modal="true">
-            <h3>Share: {selectedShareDoc?.title || "Document"}</h3>
+            <h3>Settings: {selectedShareDoc?.title || "Document"}</h3>
             {shareError ? <p className="field-error">{shareError}</p> : null}
 
             <div className="doc-visibility-control">
@@ -315,12 +315,12 @@ function DocumentsContent({ token, onLogout }) {
                 id="documents-visibility-select"
                 value={selectedShareDoc?.isPublic ? "PUBLIC" : "PRIVATE"}
                 onChange={(event) => handleUpdateVisibility(event.target.value === "PUBLIC")}
-                disabled={shareBusy}
+                disabled={shareBusy || String(selectedShareDoc?.owner?.id) !== String(meData?.me?.id)}
               >
                 <option value="PRIVATE">Private</option>
                 <option value="PUBLIC">Public</option>
               </select>
-              <p className="list-meta">Private documents are excluded from Discover search.</p>
+              <p className="list-meta">Discover search includes your own and shared private documents.</p>
             </div>
 
             <form className="share-form" onSubmit={handleShare}>

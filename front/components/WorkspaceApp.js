@@ -39,6 +39,7 @@ import {
   REORDER_SECTION,
   RESTORE_VERSION,
   SAVE_VERSION,
+  UPDATE_SECTION_CONTENT,
   SECTION_UPDATED,
   SHARE_DOCUMENT,
   UNSHARE_DOCUMENT,
@@ -208,6 +209,8 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
 
   const [selectedSectionId, setSelectedSectionId] = useState(null);
   const [sectionDraft, setSectionDraft] = useState("");
+  const [sectionTitleDraft, setSectionTitleDraft] = useState("");
+  const [docTitleDraft, setDocTitleDraft] = useState("");
   const [saveState, setSaveState] = useState("idle");
 
   const [presenceUsers, setPresenceUsers] = useState([]);
@@ -395,6 +398,16 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
     return sections.find((section) => String(section.id) === String(selectedSectionId)) || null;
   }, [sections, selectedSectionId]);
 
+  useEffect(() => {
+    setSectionTitleDraft(activeSection?.title || "");
+  }, [activeSection?.id, activeSection?.title]);
+
+  const activeDoc = docData?.document || null;
+
+  useEffect(() => {
+    setDocTitleDraft(activeDoc?.title || "");
+  }, [activeDoc?.id, activeDoc?.title]);
+
   const {
     data: commentsData,
     loading: loadingComments,
@@ -409,6 +422,7 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
   const [createSection, { loading: creatingSection }] = useMutation(CREATE_SECTION);
   const [updateSection, { loading: savingSection }] = useMutation(UPDATE_SECTION);
   const [applySectionOperation] = useMutation(APPLY_SECTION_OPERATION);
+  const [updateSectionContent] = useMutation(UPDATE_SECTION_CONTENT);
   const [deleteSection, { loading: deletingSection }] = useMutation(DELETE_SECTION);
   const [reorderSection, { loading: reorderingSection }] = useMutation(REORDER_SECTION);
   const [saveVersion, { loading: savingVersion }] = useMutation(SAVE_VERSION);
@@ -421,7 +435,6 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
   const [updatePresence] = useMutation(UPDATE_PRESENCE);
   const [leaveDocument] = useMutation(LEAVE_DOCUMENT);
 
-  const activeDoc = docData?.document || null;
   const comments = commentsData?.commentsBySection || [];
   const versions = versionsData?.getVersions || [];
   const coloredRemoteCursors = useMemo(() => {
@@ -466,7 +479,6 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
   useEffect(() => {
     if (!activeSection) {
       setSectionDraft("");
-      lastSyncedSectionContentRef.current = "";
       activeSectionIdRef.current = null;
       localEditRef.current = false;
       lastCursorOffsetRef.current = null;
@@ -474,9 +486,29 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
     }
 
     if (!localEditRef.current || activeSectionIdRef.current !== activeSection.id) {
-      const normalizedContent = normalizeStoredRichDocString(activeSection.content || "");
-      setSectionDraft(normalizedContent);
-      lastSyncedSectionContentRef.current = normalizedContent;
+      const serverRaw = String(activeSection.content || "");
+      const normalizedContent = normalizeStoredRichDocString(serverRaw);
+
+      // Log server load vs cached draft to help debug accidental blanking
+      try {
+        console.debug("WorkspaceApp: loading section content", {
+          sectionId: activeSection.id,
+          serverRawEmpty: !serverRaw.trim(),
+          serverRawLength: serverRaw.length,
+          lastSyncedExists: Boolean(lastSyncedSectionContentRef.current),
+          lastSyncedLength: String(lastSyncedSectionContentRef.current || "").length
+        });
+      } catch (e) {}
+
+      // If the server returned an empty content but we have a last-synced draft,
+      // prefer keeping the last-synced draft to avoid accidental blanking on refresh.
+      if (!serverRaw.trim() && lastSyncedSectionContentRef.current) {
+        setSectionDraft(String(lastSyncedSectionContentRef.current));
+      } else {
+        setSectionDraft(normalizedContent);
+        lastSyncedSectionContentRef.current = normalizedContent;
+      }
+
       setSaveState("idle");
       activeSectionIdRef.current = activeSection.id;
       localEditRef.current = false;
@@ -901,7 +933,7 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
       return;
     }
 
-    const normalized = String(nextTitle || "").trim();
+    const normalized = String((nextTitle ?? sectionTitleDraft) || "").trim();
     if (!normalized) {
       setNotice("Section title is required");
       return;
@@ -952,47 +984,43 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
       try {
         setSaveState("saving");
         const baseContent = String(lastSyncedSectionContentRef.current || "");
-        const operation = computeStringOperation(baseContent, nextValue);
+                // Send full-document JSON save via updateSectionContent (preferred)
+                let result;
+                try {
+                  const contentDoc = JSON.parse(nextValue || "{}");
+                  console.debug("WorkspaceApp: saving full section content", { sectionId, contentDocLength: String(JSON.stringify(contentDoc).length) });
+                  result = await updateSectionContent({ variables: { sectionId, contentDoc } });
+                } catch (err) {
+                  console.debug("WorkspaceApp: updateSectionContent failed, falling back to previous methods", err, { sectionId });
+                  // Fallback: attempt applySectionOperation then updateSection as before
+                  const baseContent = String(lastSyncedSectionContentRef.current || "");
+                  const operation = computeStringOperation(baseContent, nextValue);
+                  if (operation) {
+                    try {
+                      result = await applySectionOperation({ variables: { sectionId, baseContent, operation } });
+                    } catch (err2) {
+                      console.debug("WorkspaceApp: applySectionOperation failed, falling back to updateSection", err2, { sectionId });
+                      result = await updateSection({ variables: { sectionId, content: nextValue } });
+                    }
+                  } else {
+                    localEditRef.current = false;
+                    setSaveState("saved");
+                    return;
+                  }
+                }
 
-        let result;
-
-        if (operation) {
-          try {
-            result = await applySectionOperation({
-              variables: {
-                sectionId,
-                baseContent,
-                operation
-              }
-            });
-          } catch {
-            result = await updateSection({
-              variables: {
-                sectionId,
-                content: nextValue
-              }
-            });
-          }
-        } else {
-          localEditRef.current = false;
-          setSaveState("saved");
-          return;
-        }
-
-        lastSyncedSectionContentRef.current = String(
-          result.data?.applySectionOperation?.content ||
-            result.data?.updateSection?.content ||
-            nextValue
-        );
-
-        setLastSectionActor(
-          result.data?.applySectionOperation?.updatedBy?.name ||
-            result.data?.updateSection?.updatedBy?.name ||
-            meData?.me?.name ||
-            ""
-        );
-        localEditRef.current = false;
-        setSaveState("saved");
+                lastSyncedSectionContentRef.current = String(
+                  (result?.data?.updateSectionContent?.content) || (result?.data?.applySectionOperation?.content) || (result?.data?.updateSection?.content) || nextValue
+                );
+                setLastSectionActor(
+                  result?.data?.updateSectionContent?.updatedBy?.name ||
+                    result?.data?.applySectionOperation?.updatedBy?.name ||
+                    result?.data?.updateSection?.updatedBy?.name ||
+                    meData?.me?.name ||
+                    ""
+                );
+                localEditRef.current = false;
+                setSaveState("saved");
       } catch (error) {
         setSaveState("error");
         setNotice(toFriendlyError(error));
@@ -1445,6 +1473,16 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
                     sections={sections}
                     selectedSectionId={selectedSectionId}
                     cursorUsersBySection={cursorUsersBySection}
+                    activeSection={activeSection}
+                    sectionTitleDraft={sectionTitleDraft}
+                    onSectionTitleDraftChange={setSectionTitleDraft}
+                    onSaveSectionTitle={handleSaveSectionTitle}
+                    savingSection={savingSection}
+                    docTitleDraft={docTitleDraft}
+                    onDocTitleDraftChange={setDocTitleDraft}
+                    onSaveDocTitle={handleSaveTitle}
+                    savingDoc={savingTitle}
+                    activeDoc={activeDoc}
                     onSelect={handleSelectSection}
                     onAddRoot={() => handleCreateSection(null)}
                     onAddChild={(parentId) => handleCreateSection(parentId)}
@@ -1452,6 +1490,7 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
                     onMove={handleMoveSection}
                     disabled={treeDisabled}
                     loading={Boolean(activeDoc) && loadingSections}
+                    onOpenShareModal={openShareModal}
                   />
                 </section>
               </aside>
@@ -1464,9 +1503,7 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
                   onSectionChange={handleSectionInput}
                   saveState={saveState}
                   saving={savingTitle || loadingDoc || loadingSections}
-                  savingSection={savingSection}
                   onSaveTitle={handleSaveTitle}
-                  onSaveSectionTitle={handleSaveSectionTitle}
                   activeUsers={presenceUsers}
                   currentUserId={meData?.me?.id || null}
                   cursorUsers={Object.values(coloredRemoteCursors)}
@@ -1493,6 +1530,75 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
               <article className="panel modal-card" role="dialog" aria-modal="true">
                 {modalError ? <p className="modal-error">{modalError}</p> : null}
 
+
+                {modal.type === "share-document" || modal.type === "settings" ? (
+                  <>
+                    <h3>Settings</h3>
+                    <div className="doc-visibility-control">
+                      <label htmlFor="doc-visibility-select">Document visibility</label>
+                      <select
+                        id="doc-visibility-select"
+                        value={activeDoc?.isPublic ? "PUBLIC" : "PRIVATE"}
+                        onChange={(event) => handleUpdateVisibility(event.target.value === "PUBLIC")}
+                        disabled={!activeDoc || savingTitle || sharingDocument || unsharingDocument || String(activeDoc?.owner?.id) !== String(meData?.me?.id)}
+                      >
+                        <option value="PRIVATE">Private</option>
+                        <option value="PUBLIC">Public</option>
+                      </select>
+                      <p className="list-meta">
+                        Private documents are hidden from Discover search.
+                      </p>
+                    </div>
+                    <form className="share-form" onSubmit={handleShare} style={{ marginTop: 24 }}>
+                      <input
+                        value={collabEmail}
+                        onChange={(event) => setCollabEmail(event.target.value)}
+                        placeholder="Collaborator email"
+                        disabled={!activeDoc || sharingDocument || unsharingDocument}
+                      />
+                      <select
+                        value={collabPermission}
+                        onChange={(event) => setCollabPermission(event.target.value)}
+                        disabled={!activeDoc || sharingDocument || unsharingDocument}
+                      >
+                        <option value="EDIT">EDIT</option>
+                        <option value="VIEW">VIEW</option>
+                      </select>
+                      <button
+                        type="submit"
+                        disabled={!activeDoc || sharingDocument || unsharingDocument}
+                      >
+                        {sharingDocument ? "Saving..." : "Save"}
+                      </button>
+                    </form>
+                    <div className="collab-list">
+                      {(activeDoc?.collaborators || []).map((collaborator) => (
+                        <div key={collaborator.id} className="collab-item">
+                          <div>
+                            <strong>{collaborator.name}</strong>
+                            <small>{collaborator.email}</small>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleUnshare(collaborator.email)}
+                            disabled={sharingDocument || unsharingDocument}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                      {(activeDoc?.collaborators || []).length === 0 ? (
+                        <p className="empty">No collaborators yet.</p>
+                      ) : null}
+                    </div>
+                    <div className="modal-actions">
+                      <button type="button" onClick={closeModal}>
+                        Close
+                      </button>
+                    </div>
+                  </>
+                ) : null}
+
                 {modal.type === "create-section" ? (
                   <>
                     <h3>{modal.heading}</h3>
@@ -1516,78 +1622,7 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
                   </>
                 ) : null}
 
-                {modal.type === "share-document" ? (
-                  <>
-                    <h3>Share Document</h3>
-                    <p className="list-meta">Invite collaborators and manage access.</p>
-                    <div className="doc-visibility-control">
-                      <label htmlFor="doc-visibility-select">Document visibility</label>
-                      <select
-                        id="doc-visibility-select"
-                        value={activeDoc?.isPublic ? "PUBLIC" : "PRIVATE"}
-                        onChange={(event) =>
-                          handleUpdateVisibility(event.target.value === "PUBLIC")
-                        }
-                        disabled={!activeDoc || savingTitle || sharingDocument || unsharingDocument}
-                      >
-                        <option value="PRIVATE">Private</option>
-                        <option value="PUBLIC">Public</option>
-                      </select>
-                      <p className="list-meta">
-                        Private documents are hidden from Discover search.
-                      </p>
-                    </div>
-                    <form className="share-form" onSubmit={handleShare}>
-                      <input
-                        value={collabEmail}
-                        onChange={(event) => setCollabEmail(event.target.value)}
-                        placeholder="Collaborator email"
-                        disabled={!activeDoc || sharingDocument || unsharingDocument}
-                      />
-                      <select
-                        value={collabPermission}
-                        onChange={(event) => setCollabPermission(event.target.value)}
-                        disabled={!activeDoc || sharingDocument || unsharingDocument}
-                      >
-                        <option value="EDIT">EDIT</option>
-                        <option value="VIEW">VIEW</option>
-                      </select>
-                      <button
-                        type="submit"
-                        disabled={!activeDoc || sharingDocument || unsharingDocument}
-                      >
-                        {sharingDocument ? "Sharing..." : "Share"}
-                      </button>
-                    </form>
-
-                    <div className="collab-list">
-                      {(activeDoc?.collaborators || []).map((collaborator) => (
-                        <div key={collaborator.id} className="collab-item">
-                          <div>
-                            <strong>{collaborator.name}</strong>
-                            <small>{collaborator.email}</small>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => handleUnshare(collaborator.email)}
-                            disabled={sharingDocument || unsharingDocument}
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      ))}
-                      {(activeDoc?.collaborators || []).length === 0 ? (
-                        <p className="empty">No collaborators yet.</p>
-                      ) : null}
-                    </div>
-
-                    <div className="modal-actions">
-                      <button type="button" onClick={closeModal}>
-                        Close
-                      </button>
-                    </div>
-                  </>
-                ) : null}
+                {/* Remove duplicate share modal, only show settings modal */}
 
                 {modal.type === "delete-section" ? (
                   <>

@@ -120,7 +120,7 @@ const Document = {
         : "d.title ILIKE $2";
 
     return runPagedDocumentQuery({
-      whereSql: `d.owner_id <> $1 AND d.is_public = true AND (${modeWhereSql})`,
+      whereSql: `(d.owner_id = $1 OR s.user_id = $1 OR d.is_public = true) AND (${modeWhereSql})`,
       params: [userId, `%${keyword}%`],
       ...options
     });

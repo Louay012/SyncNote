@@ -44,10 +44,10 @@ function Group({
               type="button"
               className="doc-collab-btn"
               onClick={() => onOpenCollaborators(doc.id)}
-              aria-label={`Manage collaborators for ${doc.title}`}
-              title="Manage collaborators"
+              aria-label={`Manage settings for ${doc.title}`}
+              title="Settings"
             >
-              Share
+              Settings
             </button>
           ) : null}
         </div>

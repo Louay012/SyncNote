@@ -3,6 +3,14 @@
 import { useMemo } from "react";
 import SectionItem from "@/components/SectionItem";
 
+function formatDate(dateString) {
+  if (!dateString) return "";
+  return new Date(dateString).toLocaleString([], {
+    dateStyle: "short",
+    timeStyle: "short"
+  });
+}
+
 function sortByOrder(a, b) {
   return Number(a.order || 0) - Number(b.order || 0);
 }
@@ -11,6 +19,17 @@ export default function SectionsTree({
   sections,
   selectedSectionId,
   cursorUsersBySection,
+  activeSection,
+  sectionTitleDraft,
+  onSectionTitleDraftChange,
+  onSaveSectionTitle,
+  savingSection,
+  docTitleDraft,
+  onDocTitleDraftChange,
+  onSaveDocTitle,
+  savingDoc,
+  activeDoc,
+  onOpenShareModal,
   onSelect,
   onAddRoot,
   onAddChild,
@@ -49,11 +68,70 @@ export default function SectionsTree({
 
   return (
     <section className="sections-tree">
+      <div className="section-title-side-edit document-title-side-edit">
+        <label className="section-side-label">Document settings</label>
+        <div className="section-side-input-row">
+          <input
+            value={docTitleDraft || ""}
+            onChange={(event) => onDocTitleDraftChange?.(event.target.value)}
+            placeholder="Document title"
+            disabled={!activeDoc || disabled}
+          />
+          <button
+            type="button"
+            disabled={!activeDoc || disabled || savingDoc}
+            onClick={() => onSaveDocTitle?.(docTitleDraft || "")}
+          >
+            {savingDoc ? "..." : "Save"}
+          </button>
+        </div>
+
+        {activeDoc && (
+          <div className="doc-metadata-side">
+            <div className="metadata-row">
+              <span className="label">Owner:</span>
+              <span className="value">{activeDoc.owner?.name || "Unknown"}</span>
+            </div>
+            <div className="metadata-row">
+              <span className="label">Modified:</span>
+              <span className="value">{formatDate(activeDoc.updatedAt)}</span>
+            </div>
+            <button
+              type="button"
+              className="side-share-btn"
+              onClick={onOpenShareModal}
+              disabled={!activeDoc}
+            >
+              Settings 
+            </button>
+          </div>
+        )}
+      </div>
+
       <div className="sections-header">
         <h2>Sections</h2>
         <button type="button" onClick={onAddRoot} disabled={disabled}>
           New section
         </button>
+      </div>
+
+      <div className="section-title-side-edit">
+        <label className="section-side-label">Selected section title</label>
+        <div className="section-side-input-row">
+          <input
+            value={sectionTitleDraft || ""}
+            onChange={(event) => onSectionTitleDraftChange?.(event.target.value)}
+            placeholder="Section title"
+            disabled={!activeSection || disabled}
+          />
+          <button
+            type="button"
+            disabled={!activeSection || disabled || savingSection}
+            onClick={() => onSaveSectionTitle?.(sectionTitleDraft || "")}
+          >
+            {savingSection ? "Saving..." : "Save"}
+          </button>
+        </div>
       </div>
 
       {loading ? <p className="list-meta">Loading sections...</p> : null}

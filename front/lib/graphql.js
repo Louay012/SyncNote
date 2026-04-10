@@ -382,6 +382,24 @@ export const APPLY_SECTION_OPERATION = gql`
   }
 `;
 
+export const UPDATE_SECTION_CONTENT = gql`
+  mutation UpdateSectionContent($sectionId: ID!, $contentDoc: JSON!) {
+    updateSectionContent(sectionId: $sectionId, contentDoc: $contentDoc) {
+      id
+      documentId
+      title
+      content
+      parentId
+      order
+      updatedAt
+      updatedBy {
+        id
+        name
+      }
+    }
+  }
+`;
+
 export const DELETE_SECTION = gql`
   mutation DeleteSection($sectionId: ID!) {
     deleteSection(sectionId: $sectionId)

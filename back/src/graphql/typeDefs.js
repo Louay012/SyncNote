@@ -1,5 +1,6 @@
 export const typeDefs = `#graphql
   scalar DateTime
+  scalar JSON
 
   enum SharePermission {
     VIEW
@@ -260,6 +261,7 @@ export const typeDefs = `#graphql
       baseContent: String!
       operation: SectionContentOperationInput!
     ): Section!
+    updateSectionContent(sectionId: ID!, contentDoc: JSON!): Section!
     deleteSection(sectionId: ID!): Boolean!
     reorderSection(sectionId: ID!, order: Int!): Section!
 

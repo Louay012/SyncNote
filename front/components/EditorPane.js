@@ -1,7 +1,39 @@
+
 "use client";
+
+const FONT_OPTIONS = [
+  { label: "Curved Script", value: "var(--font-curved-script)" },
+  { label: "Uncial", value: "var(--font-uncial)" },
+  { label: "Plume", value: "var(--font-plume)" },
+  { label: "Cinzel Decorative", value: "var(--font-cinzel-decorative)" },
+  { label: "Fraktur", value: "var(--font-fraktur)" },
+  { label: "Serif", value: "serif" }
+];
+
+const FONT_SIZE_OPTIONS = [
+  { label: "16px", value: "16px" },
+  { label: "18px", value: "18px" },
+  { label: "20px", value: "20px" },
+  { label: "22px", value: "22px" },
+  { label: "24px", value: "24px" }
+];
 
 import { useEffect, useMemo, useState } from "react";
 import RichTextEditor from "@/components/RichTextEditor";
+
+const EDITOR_STYLE_KEY = "syncnote-editor-style";
+const STORY_PAPER_KEY = "syncnote-story-paper";
+const DEFAULT_STORY_PAPER_ID = "classic-scroll";
+
+const STORY_PAPER_OPTIONS = [
+  {
+    id: "classic-scroll",
+    label: "Classic Scroll",
+    topUrl: "/images/top_scroll.png",
+    middleUrl: "/images/middle.png",
+    bottomUrl: "/images/bottom_scroll.png"
+  }
+];
 
 function formatDate(dateString) {
   return new Date(dateString).toLocaleString();
@@ -14,9 +46,7 @@ export default function EditorPane({
   onSectionChange,
   saveState,
   saving,
-  savingSection,
   onSaveTitle,
-  onSaveSectionTitle,
   activeUsers,
   currentUserId,
   cursorUsers,
@@ -27,15 +57,30 @@ export default function EditorPane({
   collaboratorCount = 0
 }) {
   const [title, setTitle] = useState("");
-  const [sectionTitleDraft, setSectionTitleDraft] = useState("");
+  const [editorStyle, setEditorStyle] = useState("classic");
+  const [fontFamily, setFontFamily] = useState(FONT_OPTIONS[0].value);
+  const [fontSize, setFontSize] = useState("20px");
+  const [storyPaperId, setStoryPaperId] = useState(DEFAULT_STORY_PAPER_ID);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const saved = window.localStorage.getItem(EDITOR_STYLE_KEY);
+    if (saved === "classic" || saved === "story") {
+      setEditorStyle(saved);
+    }
+
+    const savedPaper = window.localStorage.getItem(STORY_PAPER_KEY);
+    if (savedPaper && STORY_PAPER_OPTIONS.some((option) => option.id === savedPaper)) {
+      setStoryPaperId(savedPaper);
+    }
+  }, []);
 
   useEffect(() => {
     setTitle(document?.title || "");
   }, [document?.id, document?.title]);
-
-  useEffect(() => {
-    setSectionTitleDraft(section?.title || "");
-  }, [section?.id, section?.title]);
 
   const saveLabel = useMemo(() => {
     if (saveState === "saving") {
@@ -99,71 +144,75 @@ export default function EditorPane({
     );
   }
 
-  const sectionLabel = section?.parentId ? "Subsection" : "Section";
+  const storyMode = editorStyle === "story";
+  const activeStoryPaper = useMemo(() => {
+    return STORY_PAPER_OPTIONS.find((option) => option.id === storyPaperId) || STORY_PAPER_OPTIONS[0];
+  }, [storyPaperId]);
+  const storyStyleVars = useMemo(() => {
+    return {
+      "--story-scroll-top": `url("${activeStoryPaper.topUrl}")`,
+      "--story-scroll-middle": `url("${activeStoryPaper.middleUrl}")`,
+      "--story-scroll-bottom": `url("${activeStoryPaper.bottomUrl}")`
+    };
+  }, [activeStoryPaper]);
+
+  function setEditorStyleValue(nextStyle) {
+    setEditorStyle(nextStyle);
+
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(EDITOR_STYLE_KEY, nextStyle);
+    }
+  }
+
+  function handleSetEditorStyle(nextStyle) {
+    if (nextStyle === editorStyle) {
+      setEditorStyleValue("classic");
+      return;
+    }
+
+    setEditorStyleValue(nextStyle);
+  }
+
+  function handleStoryPaperChange(nextPaperId) {
+    if (!STORY_PAPER_OPTIONS.some((option) => option.id === nextPaperId)) {
+      return;
+    }
+
+    setStoryPaperId(nextPaperId);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(STORY_PAPER_KEY, nextPaperId);
+    }
+  }
+
+  const isOwner = document && currentUserId && String(document.owner?.id) === String(currentUserId);
 
   return (
-    <section className="panel editor-panel">
-      <div className="editor-header">
-        <input
-          value={title}
-          onChange={(event) => setTitle(event.target.value)}
-          placeholder="Document title"
-        />
-        <div className="editor-title-actions">
-          <button type="button" disabled={saving} onClick={() => onSaveTitle(title)}>
-            {saving ? "Saving..." : "Save title"}
-          </button>
-          <button
-            type="button"
-            className="share-trigger"
-            onClick={onOpenShareModal}
-            disabled={!document}
-          >
-            Share ({collaboratorCount})
-          </button>
-        </div>
-      </div>
-
+    <section
+      className={
+        storyMode ? "panel editor-panel editor-story" : "panel editor-panel"
+      }
+      style={{ ...storyStyleVars, '--font-family': fontFamily }}
+    >
       <div className="editor-toolbar">
         <p className="status-pill">{saveLabel}</p>
-        <div className="editor-stats">
-          <p className="editor-meta">Owner: {document.owner?.name || "Unknown"}</p>
-          <p className="editor-meta">Last update: {formatDate(document.updatedAt)}</p>
-          <p className="editor-meta">
-            Updated by: {updatedByName || document.owner?.name || "Unknown"}
-          </p>
-        </div>
+        {/* Only show the settings button if owner, relabel as 'Settings', and use share modal logic */}
+        
       </div>
-
-      <div className="section-title-row">
-        <input
-          value={sectionTitleDraft}
-          onChange={(event) => setSectionTitleDraft(event.target.value)}
-          placeholder="Section title"
-          disabled={!section}
-        />
-        <button
-          type="button"
-          disabled={!section || savingSection}
-          onClick={() => onSaveSectionTitle(sectionTitleDraft)}
-        >
-          {savingSection ? "Saving..." : `Save ${sectionLabel.toLowerCase()} title`}
-        </button>
-      </div>
-
-      <p className="editor-meta editing-section-meta">
-        {section
-          ? `Editing ${sectionLabel.toLowerCase()}: ${section.title}`
-          : "Select a section to start writing"}
-      </p>
 
       <div className="editor-textarea-wrap">
+        {storyMode ? <span className="editor-story-seal">SN</span> : null}
+        {storyMode ? <span className="editor-story-template" aria-hidden="true" /> : null}
         <RichTextEditor
           value={sectionContent}
           disabled={!section}
           onChange={onSectionChange}
           onCursorOffsetChange={handleRichCursorOffset}
           remoteCursors={sectionCursorUsers}
+          storyMode={storyMode}
+          onSetEditorStyle={handleSetEditorStyle}
+          storyPaperId={storyPaperId}
+          storyPaperOptions={STORY_PAPER_OPTIONS}
+          onStoryPaperChange={handleStoryPaperChange}
         />
       </div>
 
