@@ -1,8 +1,11 @@
 import { ApolloServer } from "@apollo/server";
 import { expressMiddleware } from "@apollo/server/express4";
+import { existsSync } from "fs";
 import cors from "cors";
 import express from "express";
 import http from "http";
+import path from "path";
+import { fileURLToPath } from "url";
 import { useServer } from "graphql-ws/lib/use/ws";
 import { WebSocketServer } from "ws";
 import { env } from "./config/env.js";
@@ -10,6 +13,11 @@ import { connectPostgres } from "./db/postgres.js";
 import { buildContext } from "./graphql/context.js";
 import { schema } from "./graphql/schema.js";
 import { attachCursorSocket } from "./realtime/cursorSocket.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const graphqlDocsDirectory = path.resolve(__dirname, "..", "public", "graphql-docs");
+const graphqlDocsIndex = path.join(graphqlDocsDirectory, "index.html");
 
 async function startServer() {
   await connectPostgres();
@@ -56,6 +64,32 @@ async function startServer() {
 
   await apolloServer.start();
 
+  if (env.graphqlDocsEnabled) {
+    if (existsSync(graphqlDocsIndex)) {
+      app.use(
+        "/docs/graphql",
+        express.static(graphqlDocsDirectory, {
+          index: "index.html",
+          redirect: false,
+          extensions: ["html"]
+        })
+      );
+
+      app.get("/docs/graphql", (_, res) => {
+        res.sendFile(graphqlDocsIndex);
+      });
+    } else {
+      app.get("/docs/graphql", (_, res) => {
+        res.status(503).json({
+          status: "docs_not_generated",
+          message:
+            "Magidoc site is not generated yet. Run `npm run docs:generate` inside back/.",
+          expectedPath: graphqlDocsDirectory
+        });
+      });
+    }
+  }
+
   app.use(
     "/graphql",
     cors({
@@ -72,9 +106,13 @@ async function startServer() {
   });
 
   httpServer.listen(env.port, () => {
+    const docsSuffix = env.graphqlDocsEnabled
+      ? `, docs: http://localhost:${env.port}/docs/graphql`
+      : "";
+
     // eslint-disable-next-line no-console
     console.log(
-      `SyncNote API running on http://localhost:${env.port}/graphql (env: ${env.nodeEnv})`
+      `SyncNote API running on http://localhost:${env.port}/graphql (env: ${env.nodeEnv})${docsSuffix}`
     );
   });
 }

@@ -269,7 +269,6 @@ export const typeDefs = `#graphql
     restoreVersion(versionId: ID!): Document!
 
     addComment(sectionId: ID!, content: String!): Comment!
-    shareDocument(documentId: ID!, userEmail: String!, permission: SharePermission = EDIT): Share!
     unshareDocument(documentId: ID!, userEmail: String!): Boolean!
     sendCollaborationInvite(
       documentId: ID!

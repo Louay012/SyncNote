@@ -7,6 +7,9 @@
   "scripts": {
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
+    "docs:generate": "magidoc generate --file ./magidoc.mjs --package-manager npm",
+    "docs:preview": "magidoc preview --file ./magidoc.mjs --port 4100",
+    "docs:dev": "magidoc dev --file ./magidoc.mjs --package-manager npm --port 4100",
     "db:setup": "node scripts/setup-postgres.js",
     "db:seed": "node scripts/seed-data.js",
     "lint": "echo \"No lint configured\""
@@ -38,6 +41,7 @@
     "ws": "^8.18.0"
   },
   "devDependencies": {
+    "@magidoc/cli": "^6.3.0",
     "nodemon": "^3.1.4"
   }
 }

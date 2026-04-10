@@ -464,20 +464,6 @@ export const ADD_COMMENT = gql`
   }
 `;
 
-export const SHARE_DOCUMENT = gql`
-  mutation ShareDocument($documentId: ID!, $userEmail: String!, $permission: SharePermission) {
-    shareDocument(documentId: $documentId, userEmail: $userEmail, permission: $permission) {
-      id
-      permission
-      user {
-        id
-        name
-        email
-      }
-    }
-  }
-`;
-
 export const UNSHARE_DOCUMENT = gql`
   mutation UnshareDocument($documentId: ID!, $userEmail: String!) {
     unshareDocument(documentId: $documentId, userEmail: $userEmail)

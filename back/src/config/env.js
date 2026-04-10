@@ -26,5 +26,8 @@ export const env = {
   corsOrigin: process.env.CORS_ORIGIN || "*",
   graphqlIntrospection:
     String(process.env.GRAPHQL_INTROSPECTION || "").toLowerCase() === "true" ||
+    (process.env.NODE_ENV || "development") !== "production",
+  graphqlDocsEnabled:
+    String(process.env.GRAPHQL_DOCS_ENABLED || "").toLowerCase() === "true" ||
     (process.env.NODE_ENV || "development") !== "production"
 };

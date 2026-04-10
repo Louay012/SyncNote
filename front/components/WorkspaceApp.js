@@ -41,7 +41,7 @@ import {
   SAVE_VERSION,
   UPDATE_SECTION_CONTENT,
   SECTION_UPDATED,
-  SHARE_DOCUMENT,
+  SEND_COLLABORATION_INVITE,
   UNSHARE_DOCUMENT,
   UPDATE_DOCUMENT,
   UPDATE_PRESENCE,
@@ -428,7 +428,7 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
   const [saveVersion, { loading: savingVersion }] = useMutation(SAVE_VERSION);
   const [restoreVersion, { loading: restoringVersion }] = useMutation(RESTORE_VERSION);
   const [addComment, { loading: postingComment }] = useMutation(ADD_COMMENT);
-  const [shareDocument, { loading: sharingDocument }] = useMutation(SHARE_DOCUMENT);
+  const [sendInvite, { loading: sharingDocument }] = useMutation(SEND_COLLABORATION_INVITE);
   const [unshareDocument, { loading: unsharingDocument }] =
     useMutation(UNSHARE_DOCUMENT);
   const [updateTypingStatus] = useMutation(UPDATE_TYPING_STATUS);
@@ -1254,7 +1254,7 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
 
     setModalError("");
     try {
-      await shareDocument({
+      await sendInvite({
         variables: {
           documentId: activeId,
           userEmail: collabEmail.trim(),
@@ -1263,7 +1263,7 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
       });
 
       await refetchDoc();
-      setNotice(`Shared with ${collabEmail.trim()} as ${collabPermission}`);
+      setNotice(`Invitation sent to ${collabEmail.trim()} as ${collabPermission}`);
       setCollabEmail("");
     } catch (error) {
       setModalError(toFriendlyError(error));
