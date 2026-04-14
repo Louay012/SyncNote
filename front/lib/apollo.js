@@ -23,7 +23,8 @@ function authHeader(token) {
 export function createApolloClient(token) {
   const httpLink = new HttpLink({
     uri: HTTP_URL,
-    headers: authHeader(token)
+    headers: authHeader(token),
+    credentials: "include"
   });
 
   const wsLink =

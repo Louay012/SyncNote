@@ -1,0 +1,96 @@
+# SyncNote — Yjs + TipTap Migration Guide
+
+This document explains the practical steps and files added to migrate SyncNote's live editing to Yjs (CRDT) while keeping GraphQL for loading, saving, auth, and metadata.
+
+## Goal
+- Use Yjs + y-websocket for real-time editing and merging.
+- Use GraphQL only for: initial load, snapshot persistence, authentication/permissions, comments and metadata.
+
+## What I added
+- `back/src/realtime/yjsWebsocket.js` — y-websocket attach to existing HTTP server; validates JWT and `canAccessDocument` before joining rooms.
+- `back/src/routes/snapshots.js` — `/snapshots/beacon` endpoint accepts raw binary Yjs updates (for sendBeacon fallback) and persists to DB.
+- `back/src/db/schema.sql` — added `document_snapshots` and `document_snapshots_history` tables (BYTEA) to store encoded Yjs snapshots.
+- `back/src/graphql/typeDefs.js` — added `Document.snapshotBase64` and `saveDocumentSnapshot` mutation; removed GraphQL live-typing fields (moved to Yjs awareness).
+- `back/src/graphql/resolvers.js` — resolver for saving/loading snapshot (base64 ↔ bytea) and permission checks.
+- `front/components/RealtimeEditor.jsx` — TipTap + Yjs integration (loads snapshot via GraphQL, connects to `y-websocket`, debounced save via GraphQL, sendBeacon fallback).
+
+## Key integration details
+
+- Initial load: client queries `document(id).snapshotBase64` and applies it with `Y.applyUpdate(ydoc, update)` before connecting.
+- WebSocket path: the server exposes Yjs at `/yjs`. Clients should connect to `ws://<host>/yjs/doc-<id>?token=<JWT>`.
+- TipTap: use `@tiptap/extension-collaboration` and `@tiptap/extension-collaboration-cursor` with `ydoc.getXmlFragment('prosemirror')`.
+- Persistence: client encodes the full Yjs state via `Y.encodeStateAsUpdate(ydoc)` → base64 → `saveDocumentSnapshot` GraphQL mutation (debounced, e.g. 3s inactivity). The server stores the binary in `document_snapshots` (BYTEA) and appends a row to `document_snapshots_history`.
+- Final-save fallback: `navigator.sendBeacon('/snapshots/beacon?docId=<id>', update)` posts raw binary to the `/snapshots/beacon` endpoint.
+
+## DB Migration
+- The schema file `back/src/db/schema.sql` was updated; run your existing DB setup/migration process (e.g. `npm run db:setup` from `back/`) to create `document_snapshots` and history table.
+
+## Example client connection (pattern)
+Connect to Yjs room named `doc-<documentId>`:
+
+```
+// wsUrl example
+const wsUrl = 'ws://localhost:4000/yjs';
+const room = `doc-${documentId}`;
+// client: new WebsocketProvider(wsUrl, room, ydoc, { params: { token: authToken } })
+```
+
+## Snapshot save/restore
+- Save: `Y.encodeStateAsUpdate(ydoc)` → base64 → `saveDocumentSnapshot(documentId, snapshotBase64)`.
+- Load: `Document.snapshotBase64` GraphQL field returns the latest snapshot as base64 → `base64ToUint8Array` → `Y.applyUpdate(ydoc, update)`.
+
+## Presence & Cursors
+- Use `provider.awareness.setLocalStateField('user', { id, name, color })` to publish presence.
+- Read remote states with `provider.awareness.getStates()` and render cursors; TipTap's `CollaborationCursor` integrates with awareness.
+
+## Auth & Permissions
+- WS handshake validates JWT token (passed as `token` query param or `Authorization` header) and calls `canAccessDocument(userId, documentId)` before allowing connection. The logic is in `back/src/realtime/yjsWebsocket.js`.
+
+## Production notes & scaling
+- Single-instance: the attached `y-websocket` runs inside the existing HTTP server at `/yjs`.
+- Multi-instance: use a Pub/Sub adapter (Redis) to replicate updates across instances or run a dedicated y-websocket cluster with Redis replication; ensure sticky sessions or use a Yjs-aware replication layer.
+- Persistence policy: prefer storing periodic full snapshots (debounced client saves or server-side throttle). Optionally store incremental updates (append-only) for history/replay.
+- Compression: compress snapshots before storing (e.g., `pako`) to reduce DB size; decompress on load.
+- Memory: implement LRU eviction of inactive `Y.Doc` instances; persist before eviction.
+
+## Quick run (dev)
+
+1. Install dependencies
+
+```bash
+cd back && npm install
+cd ../front && npm install
+```
+
+2. Apply DB migrations (existing setup script)
+
+```bash
+cd back
+npm run db:setup
+```
+
+3. Start servers
+
+```bash
+# API + Yjs WS
+cd back
+npm run dev
+
+# Frontend
+cd ../front
+npm run dev
+```
+
+## Where to look in the repo
+- `back/src/realtime/yjsWebsocket.js` — WS auth + room handling
+- `back/src/routes/snapshots.js` — sendBeacon endpoint
+- `back/src/graphql/resolvers.js` — `saveDocumentSnapshot` and `Document.snapshotBase64`
+- `front/components/RealtimeEditor.jsx` — example editor setup
+
+If you want, I can:
+- add a small README section to the root `README.md` instead of a separate file,
+- add example tests (integration) that open two clients and verify merge behavior,
+- or add server-side throttled persistence inside the Yjs connection layer.
+
+---
+Generated by the migration patch; file: `YJS_MIGRATION.md`.

@@ -1,4 +1,3 @@
-
 "use client";
 const FONT_OPTIONS = [
   { label: "Curved Script", value: "'Brush Script MT', cursive" },
@@ -49,98 +48,9 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { normalizeStoredRichDocString, parseStoredRichDoc } from "@/lib/richTextDoc";
 
-const remoteCursorPluginKey = new PluginKey("remoteCursorDecorations");
-
-function buildRemoteCursorDecorations(doc, cursors = []) {
-  const decorations = [];
-  const maxPosition = Math.max(Number(doc?.content?.size) || 1, 1);
-
-  cursors.forEach((entry) => {
-    const userId = String(entry?.userId || "").trim();
-    if (!userId) {
-      return;
-    }
-
-    const from = Math.max(Number(entry?.from) || 1, 1);
-    const position = Math.min(from, maxPosition);
-    const color = entry?.cursorColor || null;
-    const label = String(entry?.user?.name || "User").slice(0, 14);
-
-    decorations.push(
-      Decoration.widget(
-        position,
-        () => {
-          const wrapper = document.createElement("span");
-          wrapper.className = "rt-remote-cursor-wrap";
-
-          const caret = document.createElement("span");
-          caret.className = "rt-remote-cursor";
-          if (color?.border) {
-            caret.style.borderLeftColor = color.border;
-          }
-
-          const nameTag = document.createElement("span");
-          nameTag.className = "rt-remote-cursor-label";
-          nameTag.textContent = label;
-          if (color?.bg) {
-            nameTag.style.backgroundColor = color.bg;
-          }
-          if (color?.fg) {
-            nameTag.style.color = color.fg;
-          }
-          if (color?.border) {
-            nameTag.style.borderColor = color.border;
-          }
-
-          wrapper.append(caret, nameTag);
-          return wrapper;
-        },
-        {
-          side: -1,
-          key: `remote-cursor-${userId}-${Number(entry?.seq) || 0}`
-        }
-      )
-    );
-  });
-
-  return DecorationSet.create(doc, decorations);
-}
-
-const RemoteCursorExtension = Extension.create({
-  name: "remoteCursorDecorations",
-  addProseMirrorPlugins() {
-    return [
-      new Plugin({
-        key: remoteCursorPluginKey,
-        state: {
-          init() {
-            return DecorationSet.empty;
-          },
-          apply(transaction, oldState) {
-            const meta = transaction.getMeta(remoteCursorPluginKey);
-            if (meta?.type === "set-remote-cursors") {
-              return buildRemoteCursorDecorations(
-                transaction.doc,
-                Array.isArray(meta.cursors) ? meta.cursors : []
-              );
-            }
-
-            if (transaction.docChanged) {
-              return oldState.map(transaction.mapping, transaction.doc);
-            }
-
-            return oldState;
-          }
-        },
-        props: {
-          decorations(state) {
-            return remoteCursorPluginKey.getState(state);
-          }
-        }
-      })
-    ];
-  }
-});
+// NOTE: manual remote-cursor decorations have been removed in favor of
+// TipTap's built-in CollaborationCursor extension which integrates with
+// the Yjs provider/awareness channel. See RealtimeEditor for provider wiring.
 
 const FontSizeExtension = Extension.create({
   name: "fontSize",
@@ -187,17 +97,23 @@ const FontSizeExtension = Extension.create({
   }
 });
 
+import Collaboration from '@tiptap/extension-collaboration'
+import CollaborationCursor from '@tiptap/extension-collaboration-cursor'
+
 export default function RichTextEditor({
   value,
   disabled,
   onChange,
-  onCursorOffsetChange,
-  remoteCursors = [],
+  // `remoteCursors` (socket/legacy feed) removed — use CollaborationCursor only
   storyMode = false,
   onSetEditorStyle,
   storyPaperId = "aged-scroll",
   storyPaperOptions = [],
-  onStoryPaperChange
+  onStoryPaperChange,
+  // optional Yjs integration
+  ydoc = null,
+  provider = null,
+  user = null
 }) {
   const [fontFamilyValue, setFontFamilyValue] = useState(FONT_OPTIONS[0].value);
 
@@ -209,33 +125,21 @@ export default function RichTextEditor({
   const [fontSizeValue, setFontSizeValue] = useState("38");
   const suppressExternalOnChangeRef = useRef(false);
   const preservedSelectionRef = useRef(null);
+  const previousSelectionRef = useRef(null);
 
   const normalizedValue = useMemo(() => normalizeStoredRichDocString(value), [value]);
 
-  function emitCursorPosition(currentEditor, options = {}) {
-    const { requireFocus = true } = options;
+  // Legacy socket-based cursor emission removed. Use Yjs awareness +
+  // TipTap CollaborationCursor to publish local selection and render
+  // remote cursors. Manual emission and socket fallbacks were removed
+  // to avoid duplicate cursor traffic and race conditions.
 
-    if (!currentEditor) {
-      return;
-    }
-
-    if (requireFocus && !currentEditor.isFocused) {
-      return;
-    }
-
-    const from = Math.max(Number(currentEditor.state.selection?.from) || 1, 1);
-    const to = Math.max(Number(currentEditor.state.selection?.to) || from, from);
-
-    onCursorOffsetChange?.({ from, to });
-  }
-
-  const editor = useEditor({
-    immediatelyRender: false,
-    extensions: [
-      StarterKit,
+  const extensions = useMemo(() => {
+    const exts = [
+      StarterKit.configure({ history: false }),
       Underline,
       CustomTextStyle,
-      // Plugin to render a preserved selection decoration when editor loses native focus
+      // preserved selection plugin
       new Plugin({
         key: preservedSelectionPluginKey,
         state: {
@@ -264,25 +168,139 @@ export default function RichTextEditor({
         }
       }),
       Color,
-      RemoteCursorExtension
-    ],
-    content: parseStoredRichDoc(normalizedValue),
+      // RemoteCursorExtension removed — rely on CollaborationCursor + awareness.
+    ];
+
+    if (ydoc) {
+      // TipTap Collaboration expects a Y.Doc. Explicitly bind to the
+      // 'prosemirror' XmlFragment so all clients use the same field.
+      exts.push(Collaboration.configure({ document: ydoc, field: 'prosemirror' }));
+    }
+
+    // Only add CollaborationCursor when a real provider and ydoc are available.
+    // Do NOT pass a `user` fallback here — rely on the provider.awareness
+    // states written by the application (server-provided auth name). If a
+    // local `user` is passed here the extension may use it as a fallback
+    // for rendering remote cursors which can cause every cursor to show the
+    // same name. The app writes the authoritative `user` into awareness.
+    if (provider && provider.awareness && ydoc) {
+      // Pass provider and a custom render function so labels are
+      // truncated, centered, and colored based on awareness user colors.
+      const truncateName = (n) => {
+        try {
+          if (!n) return "";
+          const s = String(n);
+          return s.length > 8 ? `${s.slice(0, 8)}...` : s;
+        } catch (e) {
+          return String(n || "");
+        }
+      };
+
+      const hexToRgb = (hex) => {
+        if (!hex) return null;
+        const m = String(hex).replace('#', '');
+        if (m.length === 3) {
+          return [parseInt(m[0] + m[0], 16), parseInt(m[1] + m[1], 16), parseInt(m[2] + m[2], 16)];
+        }
+        if (m.length !== 6) return null;
+        return [parseInt(m.substring(0, 2), 16), parseInt(m.substring(2, 4), 16), parseInt(m.substring(4, 6), 16)];
+      };
+
+      const getContrast = (hex) => {
+        const rgb = hexToRgb(hex);
+        if (!rgb) return '#ffffff';
+        const [r, g, b] = rgb;
+        const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+        return lum > 0.5 ? '#000000' : '#ffffff';
+      };
+
+      exts.push(
+        CollaborationCursor.configure({
+          provider,
+          render: (u) => {
+            try {
+              const bg = u?.color || '#007aff';
+              const fg = u?.colorFg || getContrast(bg);
+
+              // Wrapper whose color property will be inherited by the caret
+              // (so caret can use currentColor). We then style the label
+              // explicitly for text/background colors.
+              const caret = document.createElement('span');
+              caret.className = 'collaboration-cursor__caret';
+              // caret will inherit currentColor for border; set it directly
+              caret.style.color = bg;
+
+              const label = document.createElement('span');
+              label.className = 'collaboration-cursor__label';
+              label.style.backgroundColor = bg;
+              label.style.color = fg;
+              label.style.display = 'inline-flex';
+              label.style.alignItems = 'center';
+              label.style.justifyContent = 'center';
+              label.textContent = truncateName(u?.name || '');
+
+              // Append label as a child of the caret so absolute positioning
+              // is anchored to the caret element (prevents labels sticking
+              // to the top of the document).
+              caret.appendChild(label);
+              return caret;
+            } catch (e) {
+              const fallback = document.createElement('span');
+              fallback.className = 'collaboration-cursor__label';
+              fallback.textContent = u?.name || '';
+              return fallback;
+            }
+          }
+        })
+      );
+    }
+
+    // If no provider/ydoc present, do not add any manual cursor rendering.
+
+    return exts;
+  }, [ydoc, provider, user]);
+
+  const editor = useEditor({
+    immediatelyRender: false,
+    extensions,
+    content: ydoc ? undefined : parseStoredRichDoc(normalizedValue),
     editorProps: {
       attributes: {
         class: "rt-editor-content"
       }
     },
     onFocus({ editor: currentEditor }) {
-      emitCursorPosition(currentEditor, { requireFocus: false });
+      // selection emission handled via provider.awareness in onSelectionUpdate
     },
     onUpdate({ editor: currentEditor }) {
       if (!suppressExternalOnChangeRef.current) {
         onChange?.(JSON.stringify(currentEditor.getJSON()));
       }
-      emitCursorPosition(currentEditor);
+      // selection emission handled via provider.awareness in onSelectionUpdate
     },
     onSelectionUpdate({ editor: currentEditor }) {
-      emitCursorPosition(currentEditor);
+      // selection will be written into provider.awareness below (if provider present)
+
+      // When using a Yjs provider, write precise ProseMirror positions
+      // (anchor/head) into the provider.awareness `selection` field so
+      // remote peers receive exact positions rather than coarse line info.
+      try {
+        if (provider && provider.awareness && provider.__isSynced && currentEditor && currentEditor.state) {
+          const sel = currentEditor.state.selection || {};
+          const anchor = Number(sel.anchor || 0) || 0;
+          const head = Number(sel.head || 0) || 0;
+          // avoid noisy writes by comparing previous selection
+          if (!previousSelectionRef.current || previousSelectionRef.current.anchor !== anchor || previousSelectionRef.current.head !== head) {
+            previousSelectionRef.current = { anchor, head };
+            try {
+              const docSize = currentEditor?.state?.doc?.content?.size || null;
+              provider.awareness.setLocalStateField('selection', { anchor, head, docSize });
+            } catch (e) {
+              // ignore awareness write errors
+            }
+          }
+        }
+      } catch (e) {}
 
       const currentFontSize = String(currentEditor.getAttributes("textStyle")?.fontSize || "").trim();
       if (currentFontSize.endsWith("px")) {
@@ -299,6 +317,14 @@ export default function RichTextEditor({
       return;
     }
 
+    // If a Yjs doc/provider is present, we are in collaboration mode.
+    // Do NOT call `editor.commands.setContent` while collaborating —
+    // TipTap will replace the document and break CRDT sync. Only
+    // initialize content when not using Yjs.
+    if (ydoc || provider) {
+      return;
+    }
+
     editor.setEditable(!disabled);
   }, [editor, disabled]);
 
@@ -306,6 +332,9 @@ export default function RichTextEditor({
     if (!editor) {
       return;
     }
+    // Do not call setContent when the editor is connected to a Y.Doc/provider
+    // — this will overwrite live CRDT state and break collaboration.
+    if (ydoc || provider) return;
 
     const current = JSON.stringify(editor.getJSON());
     if (current !== normalizedValue) {
@@ -338,18 +367,8 @@ export default function RichTextEditor({
     }
   }, [editor, normalizedValue]);
 
-  useEffect(() => {
-    if (!editor) {
-      return;
-    }
-
-    editor.view.dispatch(
-      editor.state.tr.setMeta(remoteCursorPluginKey, {
-        type: "set-remote-cursors",
-        cursors: remoteCursors
-      })
-    );
-  }, [editor, remoteCursors]);
+  // Manual socket-driven remote cursor decorations removed. Use
+  // TipTap's CollaborationCursor (awareness) when a provider is available.
 
 
   function preserveSelectionAndRun(fn) {
@@ -469,7 +488,7 @@ export default function RichTextEditor({
           type="button"
           className={editor?.isActive("bold") ? "format-btn icon-btn active" : "format-btn icon-btn"}
           onClick={() => editor?.chain().focus().toggleBold().run()}
-          disabled={!editor || disabled}
+          disabled={!editor}
           title="Bold"
           aria-label="Bold"
         >
@@ -479,15 +498,12 @@ export default function RichTextEditor({
           type="button"
           className={editor?.isActive("underline") ? "format-btn icon-btn active" : "format-btn icon-btn"}
           onClick={() => editor?.chain().focus().toggleUnderline().run()}
-          disabled={!editor || disabled}
+          disabled={!editor}
           title="Underline"
           aria-label="Underline"
         >
           U
         </button>
-        
-        
-     
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginRight: 12 }}>
           <label className="format-color-label">
             Color
@@ -496,7 +512,7 @@ export default function RichTextEditor({
               className="format-color-input"
               value={colorValue}
               onChange={(event) => setColorValue(event.target.value)}
-              disabled={!editor || disabled}
+              disabled={!editor}
               aria-label="Pick text color"
             />
           </label>
@@ -504,7 +520,7 @@ export default function RichTextEditor({
             type="button"
             className="format-btn icon-btn"
             onClick={applyColor}
-            disabled={!editor || disabled}
+            disabled={!editor}
             title="Apply text color"
             aria-label="Apply text color"
           >
@@ -537,7 +553,7 @@ export default function RichTextEditor({
               } catch (e) {}
               changeFontSize(-1);
             }}
-            disabled={!editor || disabled}
+            disabled={!editor}
             title="Decrease font size"
             aria-label="Decrease font size"
           >
@@ -564,14 +580,14 @@ export default function RichTextEditor({
               } catch (e) {}
               changeFontSize(1);
             }}
-            disabled={!editor || disabled}
+            disabled={!editor}
             title="Increase font size"
             aria-label="Increase font size"
           >
             A+
           </button>
         </span>
- </div>
+      </div>
 
       <EditorContent editor={editor} />
     </div>

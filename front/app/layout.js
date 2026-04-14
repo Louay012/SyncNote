@@ -9,6 +9,7 @@ import {
 } from "next/font/google";
 import "./globals.css";
 import ThemeToggle from "@/components/ThemeToggle";
+import { AuthProvider } from "@/context/AuthContext";
 
 const headingFont = Space_Grotesk({
   subsets: ["latin"],
@@ -63,7 +64,7 @@ export default function RootLayout({ children }) {
         className={`${headingFont.variable} ${monoFont.variable} ${plumeFont.variable} ${uncialFont.variable} ${cinzelDecorativeFont.variable} ${frakturFont.variable} ${curvedScriptFont.variable}`}
       >
         <ThemeToggle showControl={false} />
-        {children}
+        <AuthProvider>{children}</AuthProvider>
       </body>
     </html>
   );

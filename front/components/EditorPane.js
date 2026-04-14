@@ -19,7 +19,9 @@ const FONT_SIZE_OPTIONS = [
 ];
 
 import { useEffect, useMemo, useState } from "react";
-import RichTextEditor from "@/components/RichTextEditor";
+import RealtimeEditor from "@/components/RealtimeEditor";
+import { useAuth } from "@/context/AuthContext";
+import { getCursorColor } from "@/lib/cursorColors";
 
 const EDITOR_STYLE_KEY = "syncnote-editor-style";
 const STORY_PAPER_KEY = "syncnote-story-paper";
@@ -54,13 +56,27 @@ export default function EditorPane({
   typingNotice,
   updatedByName,
   onOpenShareModal,
-  collaboratorCount = 0
+  collaboratorCount = 0,
+  onRealtimeAutosaveStateChange
 }) {
   const [title, setTitle] = useState("");
   const [editorStyle, setEditorStyle] = useState("classic");
   const [fontFamily, setFontFamily] = useState(FONT_OPTIONS[0].value);
   const [fontSize, setFontSize] = useState("20px");
   const [storyPaperId, setStoryPaperId] = useState(DEFAULT_STORY_PAPER_ID);
+
+  const { token, getWsToken, user: authUser } = useAuth();
+
+  // derive an effective user object for the realtime editor (fallback to activeUsers)
+  const effectiveEditorUser = useMemo(() => {
+    const id = authUser?.id || currentUserId;
+    let name = authUser?.name ?? null;
+    if (!name && id && Array.isArray(activeUsers)) {
+      const match = (activeUsers || []).find((e) => String(e.userId) === String(id));
+      if (match?.user?.name) name = match.user.name;
+    }
+    return { id, name };
+  }, [authUser?.id, authUser?.name, currentUserId, activeUsers]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -129,6 +145,19 @@ export default function EditorPane({
       return;
     }
 
+    // Forward precise ProseMirror selection positions (anchor/head) when available.
+    const anchor = cursorPosition?.anchor;
+    const head = cursorPosition?.head;
+    if (anchor != null || head != null) {
+      onCursorActivity({
+        anchor: Number(anchor || 0),
+        head: Number(head || 0),
+        from: Math.max(Number(cursorPosition?.from) || 1, 1),
+        to: Math.max(Number(cursorPosition?.to) || 1, 1)
+      });
+      return;
+    }
+
     onCursorActivity({
       from: Math.max(Number(cursorPosition?.from) || 1, 1),
       to: Math.max(Number(cursorPosition?.to) || 1, 1)
@@ -152,7 +181,6 @@ export default function EditorPane({
     return {
       "--story-scroll-top": `url("${activeStoryPaper.topUrl}")`,
       "--story-scroll-middle": `url("${activeStoryPaper.middleUrl}")`,
-      "--story-scroll-bottom": `url("${activeStoryPaper.bottomUrl}")`
     };
   }, [activeStoryPaper]);
 
@@ -202,40 +230,64 @@ export default function EditorPane({
       <div className="editor-textarea-wrap">
         {storyMode ? <span className="editor-story-seal">SN</span> : null}
         {storyMode ? <span className="editor-story-template" aria-hidden="true" /> : null}
-        <RichTextEditor
-          value={sectionContent}
-          disabled={!section}
-          onChange={onSectionChange}
-          onCursorOffsetChange={handleRichCursorOffset}
-          remoteCursors={sectionCursorUsers}
-          storyMode={storyMode}
-          onSetEditorStyle={handleSetEditorStyle}
-          storyPaperId={storyPaperId}
-          storyPaperOptions={STORY_PAPER_OPTIONS}
-          onStoryPaperChange={handleStoryPaperChange}
-        />
+        {/* Use Yjs-based realtime editor when document is present to avoid GraphQL hot-path saves */}
+        {document ? (
+          <RealtimeEditor
+              documentId={String(document.id)}
+              wsUrl={(() => {
+                if (typeof window === 'undefined') return '';
+                const isSecure = window.location.protocol === 'https:';
+                const proto = isSecure ? 'wss:' : 'ws:';
+                const host = window.location.hostname || 'localhost';
+                // default backend port for realtime y-websocket is 4000
+                return `${proto}//${host}:4000/yjs`;
+              })()}
+              authToken={token}
+              getWsToken={getWsToken}
+              user={effectiveEditorUser}
+              onAutosaveStateChange={onRealtimeAutosaveStateChange}
+              onCursorActivity={handleRichCursorOffset}
+            />
+        ) : (
+          <textarea
+            className="rt-editor-content"
+            value={sectionContent || ''}
+            disabled={!section}
+            onChange={(e) => onSectionChange?.(e.target.value)}
+            aria-label="Section editor"
+          />
+        )}
       </div>
 
       <section className="presence-panel">
         <h3>Live activity</h3>
         <div className="presence-avatars">
           {liveUsers.length === 0 ? <p className="empty">No active collaborators right now.</p> : null}
-          {liveUsers.map((entry) => (
-            <span
-              key={entry.userId}
-              className="presence-avatar"
-              title={`${entry.user?.name || "User"} in ${entry.sectionTitle || "a section"}`}
-            >
-              {(entry.user?.name || "U").slice(0, 1).toUpperCase()}
-            </span>
-          ))}
+            {liveUsers.map((entry) => {
+              const palette = entry.user?.color ? { bg: entry.user.color, fg: entry.user.colorFg || '#ffffff', border: entry.user.colorBorder || entry.user.color } : getCursorColor(entry.userId);
+              return (
+                <span
+                  key={entry.userId}
+                  className="presence-avatar"
+                  title={`${entry.user?.name || "User"} in ${entry.sectionTitle || "a section"}`}
+                  style={{ background: palette.bg, color: palette.fg, borderColor: palette.border }}
+                >
+                  {(entry.user?.name || "U").slice(0, 1).toUpperCase()}
+                </span>
+              );
+            })}
         </div>
         <div className="presence-list">
-          {liveUsers.map((entry) => (
-            <span key={`detail-${entry.userId}`} className="presence-chip">
-              {entry.user?.name || "User"} in {entry.sectionTitle || "a section"}
-            </span>
-          ))}
+            {liveUsers.map((entry) => {
+              const palette = entry.user?.color ? { bg: entry.user.color, fg: entry.user.colorFg || '#ffffff', border: entry.user.colorBorder || entry.user.color } : getCursorColor(entry.userId);
+              return (
+                <span key={`detail-${entry.userId}`} className="presence-chip" style={{ borderColor: palette.border }}>
+                  <span className="presence-chip__dot" style={{ background: palette.bg, borderColor: palette.border }} />
+                  <span className="presence-chip__text" style={{ color: palette.fg, marginLeft: 8 }}>{entry.user?.name || "User"}</span>
+                  <span style={{ marginLeft: 8, opacity: 0.85 }}>in {entry.sectionTitle || "a section"}</span>
+                </span>
+              );
+            })}
         </div>
         {typingNotice ? <p className="typing-indicator">{typingNotice}</p> : null}
       </section>

@@ -78,7 +78,6 @@ export const typeDefs = `#graphql
     createdAt: DateTime!
     createdBy: User!
   }
-
   type Presence {
     userId: ID!
     user: User!
@@ -87,20 +86,12 @@ export const typeDefs = `#graphql
     updatedAt: DateTime!
   }
 
-  type TypingEvent {
-    documentId: ID!
-    userId: ID!
-    user: User!
-    sectionId: ID
-    sectionTitle: String
-    isTyping: Boolean!
-    at: DateTime!
-  }
 
   type Document {
     id: ID!
     title: String!
     content: String!
+    snapshotBase64: String
     isPublic: Boolean!
     owner: User!
     collaborators: [User!]!
@@ -266,6 +257,7 @@ export const typeDefs = `#graphql
     reorderSection(sectionId: ID!, order: Int!): Section!
 
     saveVersion(documentId: ID!): Version!
+    saveDocumentSnapshot(documentId: ID!, snapshotBase64: String!): Boolean!
     restoreVersion(versionId: ID!): Document!
 
     addComment(sectionId: ID!, content: String!): Comment!
@@ -280,7 +272,7 @@ export const typeDefs = `#graphql
     likeDocument(documentId: ID!): DocumentLikeState!
     unlikeDocument(documentId: ID!): DocumentLikeState!
 
-    updateTypingStatus(documentId: ID!, sectionId: ID, isTyping: Boolean!): TypingEvent!
+    # Note: live typing is handled by the Yjs websocket (CRDT + awareness)
     updatePresence(documentId: ID!, sectionId: ID): [Presence!]!
     leaveDocument(documentId: ID!): Boolean!
   }
@@ -288,7 +280,6 @@ export const typeDefs = `#graphql
   type Subscription {
     sectionUpdated(documentId: ID!): Section!
     commentAdded(sectionId: ID!): Comment!
-    userTyping(documentId: ID!): TypingEvent!
     userPresenceChanged(documentId: ID!): [Presence!]!
     userNotificationReceived: UserNotification!
   }

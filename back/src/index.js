@@ -12,7 +12,9 @@ import { env } from "./config/env.js";
 import { connectPostgres } from "./db/postgres.js";
 import { buildContext } from "./graphql/context.js";
 import { schema } from "./graphql/schema.js";
-import { attachCursorSocket } from "./realtime/cursorSocket.js";
+import { attachSnapshotRoutes } from "./routes/snapshots.js";
+import { attachWsTokenRoute } from "./routes/wsToken.js";
+import { attachDebugRoutes } from "./routes/debug.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,12 +26,12 @@ async function startServer() {
 
   const app = express();
   const httpServer = http.createServer(app);
-  attachCursorSocket(httpServer, env);
 
-  const wsServer = new WebSocketServer({
-    server: httpServer,
-    path: "/graphql"
-  });
+  // legacy cursor socket removed: use Yjs awareness + CollaborationCursor instead
+
+  // Create a noServer WebSocketServer for GraphQL subscriptions so we can
+  // route upgrades centrally between /graphql and /yjs.
+  const graphqlWss = new WebSocketServer({ noServer: true });
 
   const serverCleanup = useServer(
     {
@@ -43,8 +45,44 @@ async function startServer() {
         return buildContext(authHeader);
       }
     },
-    wsServer
+    graphqlWss
   );
+
+  // Create the Yjs websocket handler (noServer) and get its upgrade handler
+  const { createYjsWebsocket } = await import("./realtime/yjsWebsocket.js");
+  const { wss: yjsWss, handleUpgrade: handleYjsUpgrade } = createYjsWebsocket(env);
+
+  // Central upgrade router: route to /yjs or /graphql handlers
+  httpServer.on("upgrade", async (req, socket, head) => {
+    try {
+      const parsed = new URL(req.url, `http://${req.headers.host}`);
+      const pathname = String(parsed.pathname || "");
+
+      if (pathname.startsWith("/yjs")) {
+        // Let the Yjs handler perform auth and upgrade
+        const handled = await handleYjsUpgrade(req, socket, head);
+        if (!handled) {
+          // If handler returned false, ensure socket closed
+          try { socket.write("HTTP/1.1 400 Bad Request\r\n\r\n"); } catch {}
+          try { socket.destroy(); } catch {}
+        }
+        return;
+      }
+
+      if (pathname.startsWith("/graphql")) {
+        graphqlWss.handleUpgrade(req, socket, head, (ws) => {
+          graphqlWss.emit("connection", ws, req);
+        });
+        return;
+      }
+
+      // Not handled here — allow other upgrade listeners (if any) to run
+    } catch (err) {
+      console.error("Upgrade router error", err);
+      try { socket.write("HTTP/1.1 500 Internal Server Error\r\n\r\n"); } catch {}
+      try { socket.destroy(); } catch {}
+    }
+  });
 
   const apolloServer = new ApolloServer({
     schema,
@@ -93,11 +131,12 @@ async function startServer() {
   app.use(
     "/graphql",
     cors({
-      origin: env.corsOrigin === "*" ? true : env.corsOrigin
+      origin: env.corsOrigin === "*" ? true : env.corsOrigin,
+      credentials: true
     }),
-    express.json(),
+    express.json({ limit: "8mb" }),
     expressMiddleware(apolloServer, {
-      context: async ({ req }) => buildContext(req.headers.authorization || null)
+      context: async ({ req, res }) => buildContext(req.headers.authorization || null, req, res)
     })
   );
 
@@ -105,15 +144,21 @@ async function startServer() {
     res.status(200).json({ status: "ok" });
   });
 
+  // Attach snapshot endpoints (beacon fallback)
+  attachSnapshotRoutes(app);
+
+  // Attach debug routes (development only)
+  try { attachDebugRoutes(app); } catch (e) { console.warn('attachDebugRoutes failed', e); }
+
+  // Attach ws-token endpoint (short-lived JWT for WebSocket auth)
+  attachWsTokenRoute(app);
+
   httpServer.listen(env.port, () => {
     const docsSuffix = env.graphqlDocsEnabled
       ? `, docs: http://localhost:${env.port}/docs/graphql`
       : "";
 
-    // eslint-disable-next-line no-console
-    console.log(
-      `SyncNote API running on http://localhost:${env.port}/graphql (env: ${env.nodeEnv})${docsSuffix}`
-    );
+    // server started (console output removed)
   });
 }
 

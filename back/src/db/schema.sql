@@ -332,3 +332,20 @@ ALTER TABLE comments ALTER COLUMN section_id SET NOT NULL;
 ALTER TABLE comments DROP CONSTRAINT IF EXISTS comments_document_id_fkey;
 DROP INDEX IF EXISTS comments_document_id_idx;
 ALTER TABLE comments DROP COLUMN IF EXISTS document_id;
+
+-- Yjs snapshot storage: store latest encoded Yjs snapshot per document and history
+CREATE TABLE IF NOT EXISTS document_snapshots (
+  document_id BIGINT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+  snapshot BYTEA NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS document_snapshots_history (
+  id BIGSERIAL PRIMARY KEY,
+  document_id BIGINT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  snapshot BYTEA NOT NULL,
+  saved_by BIGINT REFERENCES users(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS document_snapshots_history_document_id_idx ON document_snapshots_history(document_id);

@@ -21,7 +21,7 @@ import {
   getStoredToken,
   setStoredToken
 } from "@/lib/authToken";
-import { createCursorSocket } from "@/lib/cursorSocket";
+// legacy cursor socket removed; using Yjs awareness + CollaborationCursor
 import { normalizeStoredRichDocString } from "@/lib/richTextDoc";
 import {
   ADD_COMMENT,
@@ -216,8 +216,6 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
   const [presenceUsers, setPresenceUsers] = useState([]);
   const [typingUsers, setTypingUsers] = useState({});
   const [remoteCursors, setRemoteCursors] = useState({});
-  const [selfUserId, setSelfUserId] = useState("");
-  const [socketSelfCursorId, setSocketSelfCursorId] = useState("");
   const [lastSectionActor, setLastSectionActor] = useState("");
 
   const [collabEmail, setCollabEmail] = useState("");
@@ -237,13 +235,6 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
   const isMobileViewport = viewportMode === "mobile";
 
   const saveTimerRef = useRef(null);
-  const cursorTimerRef = useRef(null);
-  const cursorSocketRef = useRef(null);
-  const selfUserIdRef = useRef("");
-  const socketSelfCursorIdRef = useRef("");
-  const lastCursorOffsetRef = useRef(null);
-  const lastRemoteCursorSeqRef = useRef({});
-  const lastRemoteCursorSourceRef = useRef({});
   const lastSyncedSectionContentRef = useRef("");
   const selectedSectionIdRef = useRef(selectedSectionId);
   const activeSectionIdRef = useRef(null);
@@ -309,16 +300,7 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
       if (saveTimerRef.current) {
         window.clearTimeout(saveTimerRef.current);
       }
-
-      if (cursorTimerRef.current) {
-        window.clearTimeout(cursorTimerRef.current);
-      }
-
-      cursorSocketRef.current?.disconnect();
-      cursorSocketRef.current = null;
-      selfUserIdRef.current = "";
-      lastRemoteCursorSeqRef.current = {};
-      lastRemoteCursorSourceRef.current = {};
+      // legacy cursor socket removed; only clear save timer
     },
     []
   );
@@ -481,7 +463,6 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
       setSectionDraft("");
       activeSectionIdRef.current = null;
       localEditRef.current = false;
-      lastCursorOffsetRef.current = null;
       return;
     }
 
@@ -491,13 +472,7 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
 
       // Log server load vs cached draft to help debug accidental blanking
       try {
-        console.debug("WorkspaceApp: loading section content", {
-          sectionId: activeSection.id,
-          serverRawEmpty: !serverRaw.trim(),
-          serverRawLength: serverRaw.length,
-          lastSyncedExists: Boolean(lastSyncedSectionContentRef.current),
-          lastSyncedLength: String(lastSyncedSectionContentRef.current || "").length
-        });
+        // loading section content (debug removed)
       } catch (e) {}
 
       // If the server returned an empty content but we have a last-synced draft,
@@ -512,7 +487,6 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
       setSaveState("idle");
       activeSectionIdRef.current = activeSection.id;
       localEditRef.current = false;
-      lastCursorOffsetRef.current = null;
     }
   }, [activeSection]);
 
@@ -643,166 +617,7 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
     }
   });
 
-  useEffect(() => {
-    if (!token || !activeId) {
-      return undefined;
-    }
-
-    const socket = createCursorSocket(token);
-    cursorSocketRef.current = socket;
-
-    const onConnect = () => {
-      const ownCursorId = String(socket.id || "");
-      if (ownCursorId) {
-        socketSelfCursorIdRef.current = ownCursorId;
-        setSocketSelfCursorId(ownCursorId);
-      }
-      socket.emit("cursor:join", { documentId: activeId });
-    };
-
-    const onSelf = (payload) => {
-      const userId = String(payload?.userId || "");
-      const cursorId = String(payload?.cursorId || "");
-      if (userId) {
-        selfUserIdRef.current = userId;
-        setSelfUserId(userId);
-      }
-      if (!cursorId) {
-        return;
-      }
-      socketSelfCursorIdRef.current = cursorId;
-      setSocketSelfCursorId(cursorId);
-    };
-
-    const onSnapshot = (payload) => {
-      const snapshot = payload?.cursors || [];
-      const snapshotSelfCursorId = String(payload?.selfCursorId || "");
-      if (snapshotSelfCursorId) {
-        socketSelfCursorIdRef.current = snapshotSelfCursorId;
-        setSocketSelfCursorId(snapshotSelfCursorId);
-      }
-
-      const currentCursorId = String(socketSelfCursorIdRef.current || "");
-      const mapped = {};
-      const nextSeqByUserId = {};
-      const nextSourceByUserId = {};
-      const currentSelfUserId = String(selfUserIdRef.current || meData?.me?.id || "");
-
-      snapshot.forEach((entry) => {
-        const entryUserId = String(entry?.userId || "");
-        if (!entryUserId) {
-          return;
-        }
-
-        if (currentSelfUserId && entryUserId === currentSelfUserId) {
-          return;
-        }
-
-        mapped[entryUserId] = entry;
-        nextSeqByUserId[entryUserId] = Math.max(Number(entry?.seq) || 0, 0);
-        nextSourceByUserId[entryUserId] = String(entry?.cursorId || "");
-      });
-
-      lastRemoteCursorSeqRef.current = nextSeqByUserId;
-      lastRemoteCursorSourceRef.current = nextSourceByUserId;
-      setRemoteCursors(mapped);
-    };
-
-    const onMoved = (payload) => {
-      const payloadUserId = String(payload?.userId || "");
-      if (!payloadUserId) {
-        return;
-      }
-
-      if (String(payload?.documentId || "") !== String(activeId || "")) {
-        return;
-      }
-
-      const currentSelfUserId = String(selfUserIdRef.current || meData?.me?.id || "");
-      if (currentSelfUserId && payloadUserId === currentSelfUserId) {
-        return;
-      }
-
-      const incomingSeq = Math.max(Number(payload?.seq) || 0, 0);
-      const incomingCursorId = String(payload?.cursorId || "");
-      const previousCursorId = String(lastRemoteCursorSourceRef.current[payloadUserId] || "");
-
-      if (incomingCursorId && previousCursorId && incomingCursorId !== previousCursorId) {
-        lastRemoteCursorSeqRef.current[payloadUserId] = 0;
-      }
-
-      const currentSeq = Math.max(
-        Number(lastRemoteCursorSeqRef.current[payloadUserId]) || 0,
-        0
-      );
-      if (incomingSeq <= currentSeq) {
-        return;
-      }
-
-      lastRemoteCursorSeqRef.current[payloadUserId] = incomingSeq;
-      lastRemoteCursorSourceRef.current[payloadUserId] = incomingCursorId;
-
-      setRemoteCursors((current) => ({
-        ...current,
-        [payloadUserId]: payload
-      }));
-    };
-
-    const onLeft = (payload) => {
-      const payloadUserId = String(payload?.userId || "");
-      if (!payloadUserId) {
-        return;
-      }
-
-      if (String(payload?.documentId || "") !== String(activeId || "")) {
-        return;
-      }
-
-      setRemoteCursors((current) => {
-        const next = { ...current };
-        delete next[payloadUserId];
-        return next;
-      });
-
-      if (lastRemoteCursorSeqRef.current[payloadUserId] !== undefined) {
-        const nextSeq = { ...lastRemoteCursorSeqRef.current };
-        delete nextSeq[payloadUserId];
-        lastRemoteCursorSeqRef.current = nextSeq;
-      }
-
-      if (lastRemoteCursorSourceRef.current[payloadUserId] !== undefined) {
-        const nextSource = { ...lastRemoteCursorSourceRef.current };
-        delete nextSource[payloadUserId];
-        lastRemoteCursorSourceRef.current = nextSource;
-      }
-    };
-
-    socket.on("connect", onConnect);
-    socket.on("cursor:self", onSelf);
-    socket.on("cursor:snapshot", onSnapshot);
-    socket.on("cursor:moved", onMoved);
-    socket.on("cursor:update", onMoved);
-    socket.on("cursor:left", onLeft);
-    socket.connect();
-
-    return () => {
-      socket.emit("cursor:leave", { documentId: activeId });
-      socket.off("connect", onConnect);
-      socket.off("cursor:self", onSelf);
-      socket.off("cursor:snapshot", onSnapshot);
-      socket.off("cursor:moved", onMoved);
-      socket.off("cursor:update", onMoved);
-      socket.off("cursor:left", onLeft);
-      socket.disconnect();
-      selfUserIdRef.current = "";
-      socketSelfCursorIdRef.current = "";
-      lastRemoteCursorSeqRef.current = {};
-      lastRemoteCursorSourceRef.current = {};
-      if (cursorSocketRef.current === socket) {
-        cursorSocketRef.current = null;
-      }
-    };
-  }, [token, activeId, meData?.me?.id]);
+  // legacy cursor socket effect removed; rely on Yjs awareness + CollaborationCursor
 
   const typingNotice = useMemo(() => {
     const others = Object.values(typingUsers);
@@ -845,12 +660,6 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
     }
   }
 
-  function clearPendingCursorUpdate() {
-    if (cursorTimerRef.current) {
-      window.clearTimeout(cursorTimerRef.current);
-      cursorTimerRef.current = null;
-    }
-  }
 
   function closeModal() {
     setModal(null);
@@ -865,19 +674,11 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
     setPresenceUsers([]);
     setTypingUsers({});
     setRemoteCursors({});
-    setSelfUserId("");
-    setSocketSelfCursorId("");
-    selfUserIdRef.current = "";
-    socketSelfCursorIdRef.current = "";
-    lastRemoteCursorSeqRef.current = {};
-    lastRemoteCursorSourceRef.current = {};
     setLastSectionActor("");
     setCollabEmail("");
     closeModal();
     clearPendingSave();
-    clearPendingCursorUpdate();
-    cursorSocketRef.current?.disconnect();
-    cursorSocketRef.current = null;
+    // legacy cursor socket removed
     clearStoredToken();
     apolloClient.clearStore();
     router.replace("/auth");
@@ -988,10 +789,9 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
                 let result;
                 try {
                   const contentDoc = JSON.parse(nextValue || "{}");
-                  console.debug("WorkspaceApp: saving full section content", { sectionId, contentDocLength: String(JSON.stringify(contentDoc).length) });
                   result = await updateSectionContent({ variables: { sectionId, contentDoc } });
                 } catch (err) {
-                  console.debug("WorkspaceApp: updateSectionContent failed, falling back to previous methods", err, { sectionId });
+                  // updateSectionContent failed (debug removed)
                   // Fallback: attempt applySectionOperation then updateSection as before
                   const baseContent = String(lastSyncedSectionContentRef.current || "");
                   const operation = computeStringOperation(baseContent, nextValue);
@@ -999,7 +799,7 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
                     try {
                       result = await applySectionOperation({ variables: { sectionId, baseContent, operation } });
                     } catch (err2) {
-                      console.debug("WorkspaceApp: applySectionOperation failed, falling back to updateSection", err2, { sectionId });
+                      // applySectionOperation failed (debug removed)
                       result = await updateSection({ variables: { sectionId, content: nextValue } });
                     }
                   } else {
@@ -1036,37 +836,7 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
     }, 300);
   }
 
-  function handleCursorActivity(cursorPosition) {
-    if (!activeId || !activeSection?.id || !cursorPosition) {
-      return;
-    }
-
-    const from = Math.max(Number(cursorPosition.from) || 1, 1);
-    const to = Math.max(Number(cursorPosition.to) || from, from);
-
-    const cursorKey = [
-      String(activeSection.id),
-      from,
-      to
-    ].join(":");
-
-    if (cursorKey === lastCursorOffsetRef.current) {
-      return;
-    }
-
-    lastCursorOffsetRef.current = cursorKey;
-
-    const payload = {
-      documentId: activeId,
-      sectionId: activeSection.id,
-      sectionTitle: activeSection.title,
-      from,
-      to,
-      offset: Math.max(from - 1, 0)
-    };
-
-    cursorSocketRef.current?.emit("cursor:move", payload);
-  }
+  // Legacy cursor socket handlers removed. Use Yjs awareness + CollaborationCursor instead.
 
   async function handleCreateSection(parentId = null) {
     if (!activeId) {
@@ -1298,10 +1068,8 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
 
   function handleSelectSection(sectionId) {
     clearPendingSave();
-    clearPendingCursorUpdate();
     setSelectedSectionId(sectionId);
     setSaveState("idle");
-    lastCursorOffsetRef.current = null;
     localEditRef.current = false;
 
     if (viewportMode !== "desktop") {
@@ -1507,11 +1275,11 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
                   activeUsers={presenceUsers}
                   currentUserId={meData?.me?.id || null}
                   cursorUsers={Object.values(coloredRemoteCursors)}
-                  onCursorActivity={handleCursorActivity}
                   typingNotice={typingNotice}
                   updatedByName={activeSection?.updatedBy?.name || lastSectionActor}
                   onOpenShareModal={openShareModal}
                   collaboratorCount={(activeDoc?.collaborators || []).length}
+                    onRealtimeAutosaveStateChange={setSaveState}
                 />
               </section>
 

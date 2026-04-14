@@ -14,6 +14,10 @@ export function signToken(userId) {
   return jwt.sign({ userId }, env.jwtSecret, { expiresIn: env.jwtExpiresIn });
 }
 
+export function signShortLivedToken(userId, expiresIn = "5m") {
+  return jwt.sign({ userId }, env.jwtSecret, { expiresIn });
+}
+
 export function getUserIdFromAuthHeader(authHeader) {
   if (!authHeader) {
     return null;

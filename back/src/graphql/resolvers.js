@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { GraphQLScalarType, Kind } from "graphql";
 import { withFilter } from "graphql-subscriptions";
 import { env } from "../config/env.js";
+import * as Y from "yjs";
 import { query as dbQuery } from "../db/postgres.js";
 import Comment from "../models/Comment.js";
 import Document from "../models/Document.js";
@@ -142,6 +143,22 @@ function tokenExpiresAt(minutesFromNow) {
 function appRoute(pathname) {
   const baseUrl = String(env.appUrl || "http://localhost:3000").replace(/\/$/, "");
   return `${baseUrl}${pathname}`;
+}
+
+function parseExpiresToMs(expires) {
+  if (!expires) return undefined;
+  const s = String(expires).trim();
+  const m = s.match(/^(\d+)\s*([smhd])$/i);
+  if (m) {
+    const n = Number(m[1]);
+    const u = m[2].toLowerCase();
+    const mul = { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 }[u] || 1000;
+    return n * mul;
+  }
+  // fallback: try parse seconds
+  const asNum = Number(s);
+  if (Number.isFinite(asNum)) return asNum * 1000;
+  return undefined;
 }
 
 async function createEmailVerificationToken(userId) {
@@ -543,7 +560,7 @@ export const resolvers = {
   },
 
   Mutation: {
-    register: async (_, { name, email, password }) => {
+    register: async (_, { name, email, password }, contextValue) => {
       validateRegisterInput({ name, email, password });
       const safePassword = validatePasswordValue(password, "Password");
       const normalizedEmail = normalizeEmail(email);
@@ -565,13 +582,26 @@ export const resolvers = {
         await sendVerificationEmail(user);
       }
 
+      const token = signToken(user.id);
+      try {
+        if (contextValue && contextValue.res && typeof contextValue.res.cookie === "function") {
+          const maxAge = parseExpiresToMs(env.jwtExpiresIn) || 7 * 24 * 60 * 60 * 1000;
+          contextValue.res.cookie("syncnote-token", token, {
+            httpOnly: true,
+            secure: env.nodeEnv === "production",
+            sameSite: "lax",
+            maxAge
+          });
+        }
+      } catch (e) {}
+
       return {
-        token: signToken(user.id),
+        token,
         user
       };
     },
 
-    login: async (_, { email, password }) => {
+    login: async (_, { email, password }, contextValue) => {
       const normalizedEmail = normalizeEmail(email);
       requireNonEmpty(normalizedEmail, "Email");
       requireNonEmpty(password, "Password");
@@ -626,8 +656,21 @@ export const resolvers = {
         throw new Error("Please verify your email before signing in");
       }
 
+      const token = signToken(user.id);
+      try {
+        if (contextValue && contextValue.res && typeof contextValue.res.cookie === "function") {
+          const maxAge = parseExpiresToMs(env.jwtExpiresIn) || 7 * 24 * 60 * 60 * 1000;
+          contextValue.res.cookie("syncnote-token", token, {
+            httpOnly: true,
+            secure: env.nodeEnv === "production",
+            sameSite: "lax",
+            maxAge
+          });
+        }
+      } catch (e) {}
+
       return {
-        token: signToken(user.id),
+        token,
         user
       };
     },
@@ -888,14 +931,12 @@ export const resolvers = {
 
       try {
         const serialized = JSON.stringify(contentDoc || {});
-        console.debug("resolvers.updateSectionContent: incoming", { sectionId, contentDocLength: serialized.length });
       } catch (e) {}
 
       // Let Section.normalizeRichContent enforce shape/size validation.
       const updatedSection = await Section.updateById(sectionId, { content: contentDoc });
 
       try {
-        console.debug("resolvers.updateSectionContent: saved", { sectionId, savedContentLength: String(updatedSection?.content || "").length });
       } catch (e) {}
 
       if (!updatedSection) {
@@ -946,12 +987,10 @@ export const resolvers = {
       }
 
       try {
-        console.debug("resolvers.updateSection: saving section", { sectionId, hasContent: Object.hasOwn(updates, 'content') });
       } catch (e) {}
 
       const updatedSection = await Section.updateById(sectionId, updates);
       try {
-        console.debug("resolvers.updateSection: saved", { sectionId, contentLength: String(updatedSection?.content || "").length });
       } catch (e) {}
       if (!updatedSection) {
         throw new Error("Section not found");
@@ -997,7 +1036,6 @@ export const resolvers = {
 
       const normalizedBaseContent = validateSectionContent(baseContent);
       try {
-        console.debug("resolvers.applySectionOperation: incoming", { sectionId, baseContentLength: String(baseContent || "").length, operation });
       } catch (e) {}
       if (String(currentSection.content || "") !== normalizedBaseContent) {
         throw new Error("Section content is out of date");
@@ -1025,14 +1063,12 @@ export const resolvers = {
         }
       }
       try {
-        console.debug("resolvers.applySectionOperation: computed nextContent length", { sectionId, nextContentLength: String(nextContent || "").length });
       } catch (e) {}
 
       const updatedSection = await Section.updateById(sectionId, {
         content: nextContent
       });
       try {
-        console.debug("resolvers.applySectionOperation: saved", { sectionId, savedContentLength: String(updatedSection?.content || "").length });
       } catch (e) {}
 
       if (!updatedSection) {
@@ -1383,53 +1419,88 @@ export const resolvers = {
       return getDocumentLikeState(contextValue, documentId, user.id);
     },
 
-    updateTypingStatus: async (
-      _,
-      { documentId, sectionId, isTyping },
-      contextValue
-    ) => {
+    
+
+    saveDocumentSnapshot: async (_, { documentId, snapshotBase64 }, contextValue) => {
       const user = requireAuth(contextValue);
       ensureObjectId(documentId, "document id");
-      await ensureDocumentAccess(user.id, documentId);
 
-      let safeSectionId = null;
-      let sectionTitle = null;
-
-      if (sectionId !== null && sectionId !== undefined) {
-        ensureObjectId(sectionId, "section id");
-        const section = await ensureSectionAccess(user.id, sectionId);
-        safeSectionId = section.id;
-        sectionTitle = section.title;
+      if (!(await canEditDocument(user.id, documentId))) {
+        throw new Error("You do not have permission to save this document");
       }
 
-      const presenceState = touchPresence({
-        documentId,
-        user,
-        sectionId: safeSectionId,
-        sectionTitle
-      });
+      if (!snapshotBase64 || !String(snapshotBase64).trim()) {
+        throw new Error("snapshotBase64 is required");
+      }
 
-      const payload = {
-        documentId: String(documentId),
-        userId: String(user.id),
-        sectionId: safeSectionId,
-        sectionTitle,
-        isTyping: Boolean(isTyping),
-        at: new Date().toISOString()
-      };
 
-      await Promise.all([
-        pubsub.publish(EVENTS.USER_TYPING, {
-          userTyping: payload,
-          documentId: String(documentId)
-        }),
-        pubsub.publish(EVENTS.USER_PRESENCE_CHANGED, {
-          userPresenceChanged: presenceState,
-          documentId: String(documentId)
-        })
-      ]);
+      const snapshotBuffer = Buffer.from(String(snapshotBase64), "base64");
 
-      return payload;
+      // Defensive check: if the incoming snapshot decodes to an empty Y.Doc
+      // while an existing non-empty snapshot is present in DB, skip the
+      // upsert to avoid accidental data loss. This prevents a buggy client
+      // or race from overwriting the canonical server snapshot with an
+      // empty document.
+      try {
+        const incomingDoc = new Y.Doc();
+        try { Y.applyUpdate(incomingDoc, new Uint8Array(snapshotBuffer)); } catch (e) { /* ignore decode failures */ }
+        const incomingHasContent = (typeof incomingDoc.getText === 'function' && incomingDoc.getText('content') && incomingDoc.getText('content').toString().length > 0) ||
+          (typeof incomingDoc.getXmlFragment === 'function' && incomingDoc.getXmlFragment('prosemirror') && (incomingDoc.getXmlFragment('prosemirror').length > 0 || String(incomingDoc.getXmlFragment('prosemirror') || '').length > 0));
+
+        if (!incomingHasContent) {
+          // check existing snapshot
+          try {
+            const existing = await dbQuery(`SELECT snapshot FROM document_snapshots WHERE document_id = $1`, [documentId]);
+            if (existing && existing.rows && existing.rows[0] && existing.rows[0].snapshot) {
+              const existingBuf = existing.rows[0].snapshot;
+              try {
+                const existingDoc = new Y.Doc();
+                try { Y.applyUpdate(existingDoc, new Uint8Array(existingBuf)); } catch (e) { /* ignore */ }
+                const existingHasContent = (typeof existingDoc.getText === 'function' && existingDoc.getText('content') && existingDoc.getText('content').toString().length > 0) ||
+                  (typeof existingDoc.getXmlFragment === 'function' && existingDoc.getXmlFragment('prosemirror') && (existingDoc.getXmlFragment('prosemirror').length > 0 || String(existingDoc.getXmlFragment('prosemirror') || '').length > 0));
+                if (existingHasContent) {
+                  console.warn("saveDocumentSnapshot: incoming snapshot appears empty while existing snapshot is non-empty - skipping upsert to avoid data loss", { documentId, providedLen: snapshotBuffer.length, existingLen: existingBuf.length, savedBy: user.id });
+                  // Do not overwrite the latest snapshot; treat the call as successful
+                  // but avoid inserting a history row that would reflect empty state.
+                  try { await Document.touchUpdatedAt(documentId); } catch (e) {}
+                  return true;
+                }
+              } catch (e) {
+                // if anything goes wrong decoding existing snapshot, fall through
+              }
+            }
+          } catch (e) {
+            // ignore DB read failures here and continue with normal upsert
+          }
+        }
+      } catch (e) {
+        // ignore any errors in defensive checks and continue to persist
+      }
+
+      // Upsert latest snapshot
+      await dbQuery(
+        `
+          INSERT INTO document_snapshots (document_id, snapshot, updated_at)
+          VALUES ($1, $2, now())
+          ON CONFLICT (document_id) DO UPDATE SET snapshot = EXCLUDED.snapshot, updated_at = EXCLUDED.updated_at
+        `,
+        [documentId, snapshotBuffer]
+      );
+
+      // Optional history record
+      await dbQuery(
+        `INSERT INTO document_snapshots_history (document_id, snapshot, saved_by) VALUES ($1, $2, $3)`,
+        [documentId, snapshotBuffer, user.id]
+      );
+
+      // touch document updated_at
+      try {
+        await Document.touchUpdatedAt(documentId);
+      } catch (e) {
+        // best-effort
+      }
+
+      return true;
     },
 
     updatePresence: async (_, { documentId, sectionId }, contextValue) => {
@@ -1508,18 +1579,7 @@ export const resolvers = {
       )
     },
 
-    userTyping: {
-      subscribe: withFilter(
-        () => pubsub.asyncIterator([EVENTS.USER_TYPING]),
-        async ({ documentId }, { documentId: incomingId }, contextValue) => {
-          const user = requireAuth(contextValue);
-          return (
-            String(documentId) === String(incomingId) &&
-            (await canAccessDocument(user.id, documentId))
-          );
-        }
-      )
-    },
+    
 
     userPresenceChanged: {
       subscribe: withFilter(
@@ -1574,6 +1634,20 @@ export const resolvers = {
 
     comments: async (doc, _, contextValue) =>
       contextValue.loaders.commentsByDocumentId.load(doc.id)
+    ,
+    snapshotBase64: async (doc, _, contextValue) => {
+      try {
+        const { rows } = await dbQuery(
+          `SELECT snapshot FROM document_snapshots WHERE document_id = $1`,
+          [doc.id]
+        );
+        const row = rows[0];
+        if (!row || !row.snapshot) return null;
+        return Buffer.from(row.snapshot).toString("base64");
+      } catch (e) {
+        return null;
+      }
+    }
   },
 
   DiscoverDocument: {
@@ -1657,9 +1731,5 @@ export const resolvers = {
     user: async (presence, _, contextValue) =>
       contextValue.loaders.usersById.load(presence.userId)
   },
-
-  TypingEvent: {
-    user: async (typingEvent, _, contextValue) =>
-      contextValue.loaders.usersById.load(typingEvent.userId)
-  }
+  
 };
