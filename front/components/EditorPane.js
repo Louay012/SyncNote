@@ -10,32 +10,14 @@ const FONT_OPTIONS = [
   { label: "Serif", value: "serif" }
 ];
 
-const FONT_SIZE_OPTIONS = [
-  { label: "16px", value: "16px" },
-  { label: "18px", value: "18px" },
-  { label: "20px", value: "20px" },
-  { label: "22px", value: "22px" },
-  { label: "24px", value: "24px" }
-];
+
 
 import { useEffect, useMemo, useState } from "react";
 import RealtimeEditor from "@/components/RealtimeEditor";
 import { useAuth } from "@/context/AuthContext";
 import { getCursorColor } from "@/lib/cursorColors";
 
-const EDITOR_STYLE_KEY = "syncnote-editor-style";
-const STORY_PAPER_KEY = "syncnote-story-paper";
-const DEFAULT_STORY_PAPER_ID = "classic-scroll";
-
-const STORY_PAPER_OPTIONS = [
-  {
-    id: "classic-scroll",
-    label: "Classic Scroll",
-    topUrl: "/images/top_scroll.png",
-    middleUrl: "/images/middle.png",
-    bottomUrl: "/images/bottom_scroll.png"
-  }
-];
+// Story mode has been removed from the editor — keep classic editor only.
 
 function formatDate(dateString) {
   return new Date(dateString).toLocaleString();
@@ -60,10 +42,9 @@ export default function EditorPane({
   onRealtimeAutosaveStateChange
 }) {
   const [title, setTitle] = useState("");
-  const [editorStyle, setEditorStyle] = useState("classic");
   const [fontFamily, setFontFamily] = useState(FONT_OPTIONS[0].value);
   const [fontSize, setFontSize] = useState("20px");
-  const [storyPaperId, setStoryPaperId] = useState(DEFAULT_STORY_PAPER_ID);
+  
 
   const { token, getWsToken, user: authUser } = useAuth();
 
@@ -78,21 +59,7 @@ export default function EditorPane({
     return { id, name };
   }, [authUser?.id, authUser?.name, currentUserId, activeUsers]);
 
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    const saved = window.localStorage.getItem(EDITOR_STYLE_KEY);
-    if (saved === "classic" || saved === "story") {
-      setEditorStyle(saved);
-    }
-
-    const savedPaper = window.localStorage.getItem(STORY_PAPER_KEY);
-    if (savedPaper && STORY_PAPER_OPTIONS.some((option) => option.id === savedPaper)) {
-      setStoryPaperId(savedPaper);
-    }
-  }, []);
+  // No story-mode persistence needed; editor uses classic style only.
 
   useEffect(() => {
     setTitle(document?.title || "");
@@ -173,81 +140,39 @@ export default function EditorPane({
     );
   }
 
-  const storyMode = editorStyle === "story";
-  const activeStoryPaper = useMemo(() => {
-    return STORY_PAPER_OPTIONS.find((option) => option.id === storyPaperId) || STORY_PAPER_OPTIONS[0];
-  }, [storyPaperId]);
-  const storyStyleVars = useMemo(() => {
-    return {
-      "--story-scroll-top": `url("${activeStoryPaper.topUrl}")`,
-      "--story-scroll-middle": `url("${activeStoryPaper.middleUrl}")`,
-    };
-  }, [activeStoryPaper]);
+  // story-mode removed: no story paper, no story style vars, no toggles
 
-  function setEditorStyleValue(nextStyle) {
-    setEditorStyle(nextStyle);
-
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(EDITOR_STYLE_KEY, nextStyle);
-    }
-  }
-
-  function handleSetEditorStyle(nextStyle) {
-    if (nextStyle === editorStyle) {
-      setEditorStyleValue("classic");
-      return;
-    }
-
-    setEditorStyleValue(nextStyle);
-  }
-
-  function handleStoryPaperChange(nextPaperId) {
-    if (!STORY_PAPER_OPTIONS.some((option) => option.id === nextPaperId)) {
-      return;
-    }
-
-    setStoryPaperId(nextPaperId);
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(STORY_PAPER_KEY, nextPaperId);
-    }
-  }
+  
 
   const isOwner = document && currentUserId && String(document.owner?.id) === String(currentUserId);
 
   return (
-    <section
-      className={
-        storyMode ? "panel editor-panel editor-story" : "panel editor-panel"
-      }
-      style={{ ...storyStyleVars, '--font-family': fontFamily }}
-    >
+    <section className="panel editor-panel" style={{ '--font-family': fontFamily }}>
       <div className="editor-toolbar">
         <p className="status-pill">{saveLabel}</p>
-        {/* Only show the settings button if owner, relabel as 'Settings', and use share modal logic */}
+        {/* Story mode removed — toolbar simplified */}
         
       </div>
 
       <div className="editor-textarea-wrap">
-        {storyMode ? <span className="editor-story-seal">SN</span> : null}
-        {storyMode ? <span className="editor-story-template" aria-hidden="true" /> : null}
-        {/* Use Yjs-based realtime editor when document is present to avoid GraphQL hot-path saves */}
         {document ? (
           <RealtimeEditor
-              documentId={String(document.id)}
-              wsUrl={(() => {
-                if (typeof window === 'undefined') return '';
-                const isSecure = window.location.protocol === 'https:';
-                const proto = isSecure ? 'wss:' : 'ws:';
-                const host = window.location.hostname || 'localhost';
-                // default backend port for realtime y-websocket is 4000
-                return `${proto}//${host}:4000/yjs`;
-              })()}
-              authToken={token}
-              getWsToken={getWsToken}
-              user={effectiveEditorUser}
-              onAutosaveStateChange={onRealtimeAutosaveStateChange}
-              onCursorActivity={handleRichCursorOffset}
-            />
+            documentId={String(document.id)}
+            wsUrl={(() => {
+              if (typeof window === 'undefined') return '';
+              const isSecure = window.location.protocol === 'https:';
+              const proto = isSecure ? 'wss:' : 'ws:';
+              const host = window.location.hostname || 'localhost';
+              // default backend port for realtime y-websocket is 4000
+              return `${proto}//${host}:4000/yjs`;
+            })()}
+            authToken={token}
+            getWsToken={getWsToken}
+            user={effectiveEditorUser}
+            onAutosaveStateChange={onRealtimeAutosaveStateChange}
+            onCursorActivity={handleRichCursorOffset}
+            /* story-mode removed */
+          />
         ) : (
           <textarea
             className="rt-editor-content"

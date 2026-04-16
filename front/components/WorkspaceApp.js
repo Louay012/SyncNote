@@ -50,6 +50,7 @@ import {
   USER_PRESENCE_CHANGED,
   USER_TYPING
 } from "@/lib/graphql";
+import { DELETE_DOCUMENT } from "@/lib/graphql";
 import { isEmail, toFriendlyError } from "@/lib/uiErrors";
 
 const DOCUMENT_CURSOR_COLORS = [
@@ -416,6 +417,7 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
   const [updateTypingStatus] = useMutation(UPDATE_TYPING_STATUS);
   const [updatePresence] = useMutation(UPDATE_PRESENCE);
   const [leaveDocument] = useMutation(LEAVE_DOCUMENT);
+  const [deleteDocument, { loading: deletingDocument }] = useMutation(DELETE_DOCUMENT);
 
   const comments = commentsData?.commentsBySection || [];
   const versions = versionsData?.getVersions || [];
@@ -1360,8 +1362,50 @@ function EditorContent({ token, activeId, onSessionLogout, shellVariant }) {
                       ) : null}
                     </div>
                     <div className="modal-actions">
+                      {String(activeDoc?.owner?.id) === String(meData?.me?.id) ? (
+                        <button
+                          type="button"
+                          className="danger-btn"
+                          onClick={() => setModal({ type: "delete-document", documentId: activeId, documentTitle: activeDoc?.title })}
+                          disabled={deletingDocument}
+                        >
+                          {deletingDocument ? "Deleting..." : "Delete"}
+                        </button>
+                      ) : null}
                       <button type="button" onClick={closeModal}>
                         Close
+                      </button>
+                    </div>
+                  </>
+                ) : null}
+
+                {modal.type === "delete-document" ? (
+                  <>
+                    <h3>Delete Document</h3>
+                    <p>
+                      Delete <strong>{modal.documentTitle}</strong>? This action cannot be undone.
+                    </p>
+                    <div className="modal-actions">
+                      <button type="button" onClick={() => setModal(null)}>
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        className="danger-btn"
+                        onClick={async () => {
+                          if (!modal?.documentId) return;
+                          try {
+                            await deleteDocument({ variables: { id: modal.documentId } });
+                            setModal(null);
+                            setNotice("Document deleted.");
+                            router.push("/");
+                          } catch (e) {
+                            setModalError(toFriendlyError(e));
+                          }
+                        }}
+                        disabled={deletingDocument}
+                      >
+                        {deletingDocument ? "Deleting..." : "Delete"}
                       </button>
                     </div>
                   </>

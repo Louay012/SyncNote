@@ -1,0 +1,223 @@
+.diaryRoot {
+  /* default CSS variables scoped to the component root (CSS Modules friendly) */ 
+  --diary-bg: linear-gradient(180deg, #f8f5ef 0%, #efe6d6 100%);
+  --page-bg: #fffdf6;
+  --page-back-bg: #f7efe3;
+  --text-color: #222020;
+  --shadow-color: rgba(0,0,0,0.18);
+  --accent: #b9733a;
+
+  width: 100%;
+  min-height: 80vh;
+  padding: 48px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--diary-bg);
+  color: var(--text-color);
+  transition: background 0.35s ease, color 0.35s ease;
+}
+
+.pageShell {
+  width: 100%;
+  max-width: 1200px;
+}
+
+.bookWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: center;
+}
+
+.controls {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 12px;
+  box-sizing: border-box;
+  color: var(--text-color);
+}
+
+.themeSwitcher {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.themeSwitcher select {
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(0,0,0,0.08);
+  background: rgba(255,255,255,0.6);
+}
+
+.nav {
+  display: flex;
+  gap: 8px;
+}
+.navBtn {
+  border: none;
+  background: var(--accent);
+  color: white;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 16px;
+  box-shadow: 0 6px 10px rgba(0,0,0,0.12);
+}
+.navBtn:disabled { opacity: 0.5; cursor: default; }
+
+.book {
+  position: relative;
+  width: 860px;
+  height: 560px;
+  perspective: 1800px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.book canvas { width: 100% !important; height: 100% !important; display: block; border-radius: 12px; }
+
+.binding {
+  position: absolute;
+  left: 50%;
+  top: 28px;
+  transform: translateX(-50%);
+  width: 36px;
+  height: calc(100% - 56px);
+  background: linear-gradient(180deg, #cfcfcf 4%, #9b9b9b 60%);
+  border-radius: 10px;
+  box-shadow: inset 0 2px 6px rgba(255,255,255,0.25), 0 10px 22px rgba(0,0,0,0.18);
+  z-index: 9999;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.binding .coil {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  top: 10px;
+  bottom: 10px;
+  width: 22px;
+  background-image: radial-gradient(circle at 50% 50%, rgba(255,255,255,0.92) 0 22%, rgba(0,0,0,0.18) 23% 30%, transparent 31%), radial-gradient(circle at 50% 50%, rgba(200,200,200,0.9) 0 18%, rgba(120,120,120,0.95) 19% 22%, transparent 23%);
+  background-size: 22px 36px;
+  background-repeat: repeat-y;
+  box-shadow: 0 2px 2px rgba(0,0,0,0.12);
+  border-radius: 6px;
+}
+
+.page {
+  position: absolute;
+  left: calc(50% + 18px);
+  top: 20px;
+  width: 420px;
+  height: 520px;
+  transform-style: preserve-3d;
+  transform-origin: left center;
+  border-radius: 8px;
+  overflow: visible;
+  cursor: pointer;
+  will-change: transform;
+  transition: transform 0.8s cubic-bezier(0.2,0.85,0.2,1), box-shadow 0.6s;
+  box-shadow: 0 10px 25px var(--shadow-color);
+}
+.addBtn {
+  border: none;
+  background: transparent;
+  color: var(--text-color);
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  margin-left: 8px;
+}
+
+.flipping { }
+
+.page.flipping { box-shadow: 0 20px 44px rgba(0,0,0,0.28); }
+.page.flipped { pointer-events: none; }
+
+.face {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--page-bg);
+  color: var(--text-color);
+  padding: 20px;
+  box-sizing: border-box;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,0.02);
+}
+.front {}
+.back {
+  transform: rotateY(180deg);
+  background: var(--page-back-bg);
+}
+
+.content { position: relative; z-index: 2; display:flex; flex-direction:column; gap:8px; height:100%; }
+.title { font-weight: 700; margin: 0 0 8px 0; font-size: 18px; }
+.body { font-size: 14px; line-height: 1.5; color: var(--text-color); }
+
+.pageShade {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: 8px;
+  background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.14) 50%, rgba(0,0,0,0.35) 100%);
+  opacity: 0;
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+
+.page.flipped .pageShade, .page.flipping .pageShade { opacity: 1; }
+
+.pageActive { transform: translateZ(40px) scale(1); }
+.pageInactive { transform: translateZ(0px) scale(0.96); }
+
+.face::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.02));
+}
+
+.page::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -8px;
+  width: 8px;
+  height: 100%;
+  background: linear-gradient(90deg, rgba(0,0,0,0.06), rgba(0,0,0,0.02));
+  border-top-left-radius: 8px;
+  border-bottom-left-radius: 8px;
+}
+
+@media (max-width: 900px) {
+  .book { width: 100%; padding: 0 24px; box-sizing: border-box; }
+  .page { width: 340px; height: 450px; }
+}
+
+.addBtn {
+  border: none;
+  background: transparent;
+  color: var(--text-color);
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  margin-left: 8px;
+}

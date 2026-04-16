@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation } from "@apollo/client";
+import { useMutation, gql } from "@apollo/client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -38,6 +38,15 @@ function DiscoverIcon() {
     <Icon>
       <circle cx="11" cy="11" r="5" />
       <path d="m15 15 5 5" />
+    </Icon>
+  );
+}
+
+function DiaryIcon() {
+  return (
+    <Icon>
+      <path d="M6 2h8l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z" />
+      <path d="M8 8h8M8 12h8M8 16h5" />
     </Icon>
   );
 }
@@ -112,6 +121,10 @@ function isDiscoverPath(pathname) {
   return pathname === "/discover";
 }
 
+function isDiariesPath(pathname) {
+  return pathname === "/diaries" || pathname.startsWith("/diaries");
+}
+
 export default function SidebarNavigation({
   variant = "default",
   isOpen = true,
@@ -125,9 +138,23 @@ export default function SidebarNavigation({
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [createTitle, setCreateTitle] = useState("");
   const [createIsPublic, setCreateIsPublic] = useState(false);
+  const [createType, setCreateType] = useState("document");
   const [createError, setCreateError] = useState("");
   const [createDocument, { loading: creatingDocument }] = useMutation(CREATE_DOCUMENT);
+  const CREATE_DIARY_ENTRY = gql`
+    mutation CreateDiaryEntry($documentId: ID!, $date: String, $mood: String, $text: String!, $pageNumber: Int) {
+      createDiaryEntry(documentId: $documentId, date: $date, mood: $mood, text: $text, pageNumber: $pageNumber) {
+        id
+      }
+    }
+  `;
+  const [createDiaryEntry, { loading: creatingDiaryEntry }] = useMutation(CREATE_DIARY_ENTRY);
   const collapsed = !isOpen;
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
 
   useEffect(() => {
     if (!showCreateDialog) {
@@ -148,6 +175,7 @@ export default function SidebarNavigation({
     setCreateError("");
     setCreateTitle("");
     setCreateIsPublic(false);
+    setCreateType("document");
     onNavigate?.();
     setShowCreateDialog(true);
   }
@@ -156,6 +184,7 @@ export default function SidebarNavigation({
     setShowCreateDialog(false);
     setCreateError("");
     setCreateIsPublic(false);
+    setCreateType("document");
   }
 
   async function handleCreateDocument(event) {
@@ -181,7 +210,16 @@ export default function SidebarNavigation({
       onNavigate?.();
 
       const createdId = result.data?.createDocument?.id;
+      const busy = creatingDocument || creatingDiaryEntry;
       if (createdId) {
+        if (createType === "diary") {
+          try {
+            // create an initial empty diary entry so the document is recognized as a diary
+            await createDiaryEntry({ variables: { documentId: createdId, date: new Date().toISOString(), text: "" } });
+          } catch (e) {
+            console.warn("failed to create initial diary entry", e);
+          }
+        }
         router.push(`/doc/${createdId}`);
       }
     } catch (error) {
@@ -205,7 +243,7 @@ export default function SidebarNavigation({
           <span className="nav-icon" aria-hidden="true">
             <HomeIcon />
           </span>
-          {!collapsed ? (
+          {hydrated && !collapsed ? (
             <span className="app-brand-text">
               <strong>SyncNote</strong>
               <small>Collaborative workspace</small>
@@ -223,7 +261,7 @@ export default function SidebarNavigation({
           <span className="nav-icon" aria-hidden="true">
             <CollapseIcon collapsed={collapsed} />
           </span>
-          {!collapsed ? <span className="nav-label">Collapse</span> : null}
+          {hydrated && !collapsed ? <span className="nav-label">Collapse</span> : null}
         </button>
 
         <button
@@ -236,7 +274,7 @@ export default function SidebarNavigation({
           <span className="nav-icon" aria-hidden="true">
             <PlusIcon />
           </span>
-          {!collapsed ? <span className="nav-label">New Document</span> : null}
+          {hydrated && !collapsed ? <span className="nav-label">New Document</span> : null}
         </button>
       </div>
 
@@ -252,7 +290,7 @@ export default function SidebarNavigation({
             <span className="nav-icon" aria-hidden="true">
               <HomeIcon />
             </span>
-            {!collapsed ? <span className="nav-label">Dashboard</span> : null}
+            {hydrated && !collapsed ? <span className="nav-label">Dashboard</span> : null}
           </Link>
 
           <Link
@@ -265,7 +303,20 @@ export default function SidebarNavigation({
             <span className="nav-icon" aria-hidden="true">
               <DocumentsIcon />
             </span>
-            {!collapsed ? <span className="nav-label">All Documents</span> : null}
+            {hydrated && !collapsed ? <span className="nav-label">All Documents</span> : null}
+          </Link>
+
+          <Link
+            href="/diaries/mine"
+            className={isDiariesPath(pathname) ? "nav-link active" : "nav-link"}
+            aria-label="My Diaries"
+            title="My Diaries"
+            onClick={onNavigate}
+          >
+            <span className="nav-icon" aria-hidden="true">
+              <DiaryIcon />
+            </span>
+            {hydrated && !collapsed ? <span className="nav-label">My Diaries</span> : null}
           </Link>
 
           <Link
@@ -278,7 +329,7 @@ export default function SidebarNavigation({
             <span className="nav-icon" aria-hidden="true">
               <DiscoverIcon />
             </span>
-            {!collapsed ? <span className="nav-label">Discover</span> : null}
+            {hydrated && !collapsed ? <span className="nav-label">Discover</span> : null}
           </Link>
 
           <Link
@@ -291,7 +342,7 @@ export default function SidebarNavigation({
             <span className="nav-icon" aria-hidden="true">
               <UserIcon />
             </span>
-            {!collapsed ? <span className="nav-label">Profile</span> : null}
+            {hydrated && !collapsed ? <span className="nav-label">Profile</span> : null}
           </Link>
 
           <Link
@@ -304,7 +355,7 @@ export default function SidebarNavigation({
             <span className="nav-icon" aria-hidden="true">
               <InviteIcon />
             </span>
-            {!collapsed ? <span className="nav-label">Invitations</span> : null}
+            {hydrated && !collapsed ? <span className="nav-label">Invitations</span> : null}
           </Link>
 
           <Link
@@ -317,7 +368,7 @@ export default function SidebarNavigation({
             <span className="nav-icon" aria-hidden="true">
               <SettingsIcon />
             </span>
-            {!collapsed ? <span className="nav-label">Settings</span> : null}
+            {hydrated && !collapsed ? <span className="nav-label">Settings</span> : null}
           </Link>
         </nav>
       </div>
@@ -333,7 +384,7 @@ export default function SidebarNavigation({
           <span className="nav-icon" aria-hidden="true">
             <LogoutIcon />
           </span>
-          {!collapsed ? <span className="nav-label">Logout</span> : null}
+          {hydrated && !collapsed ? <span className="nav-label">Logout</span> : null}
         </button>
       </div>
 
@@ -366,6 +417,13 @@ export default function SidebarNavigation({
                 placeholder="Document title"
                 disabled={creatingDocument}
               />
+              <label className="sidebar-doc-type">
+                <span>Type</span>
+                <select value={createType} onChange={(e) => setCreateType(e.target.value)} disabled={creatingDocument || creatingDiaryEntry}>
+                  <option value="document">Document</option>
+                  <option value="diary">Diary</option>
+                </select>
+              </label>
               <label className="sidebar-visibility-toggle">
                 <input
                   type="checkbox"

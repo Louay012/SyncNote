@@ -349,3 +349,20 @@ CREATE TABLE IF NOT EXISTS document_snapshots_history (
 );
 
 CREATE INDEX IF NOT EXISTS document_snapshots_history_document_id_idx ON document_snapshots_history(document_id);
+
+-- Diary pages storage: store private notebook pages per document with consecutive page numbers
+CREATE TABLE IF NOT EXISTS diary_pages (
+  id BIGSERIAL PRIMARY KEY,
+  document_id BIGINT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  page_number INTEGER NOT NULL,
+  date TIMESTAMPTZ,
+  mood TEXT,
+  text TEXT,
+  word_count INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT diary_pages_document_page_unique UNIQUE (document_id, page_number)
+);
+
+CREATE INDEX IF NOT EXISTS diary_pages_document_id_idx ON diary_pages(document_id);
+CREATE INDEX IF NOT EXISTS diary_pages_document_page_idx ON diary_pages(document_id, page_number);

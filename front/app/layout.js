@@ -5,9 +5,12 @@ import {
   Uncial_Antiqua,
   Cinzel_Decorative,
   UnifrakturCook,
-  Great_Vibes
+  Great_Vibes,
+  Caveat,
+  Playfair_Display
 } from "next/font/google";
 import "./globals.css";
+import "./diary.css";
 import ThemeToggle from "@/components/ThemeToggle";
 import { AuthProvider } from "@/context/AuthContext";
 
@@ -52,6 +55,18 @@ const curvedScriptFont = Great_Vibes({
   variable: "--font-curved-script"
 });
 
+const caveatFont = Caveat({
+  subsets: ["latin"],
+  weight: ["400"],
+  variable: "--font-caveat"
+});
+
+const playfairFont = Playfair_Display({
+  subsets: ["latin"],
+  weight: ["400", "700"],
+  variable: "--font-playfair"
+});
+
 export const metadata = {
   title: "SyncNote",
   description: "Realtime collaborative document editor"
@@ -61,8 +76,15 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body
-        className={`${headingFont.variable} ${monoFont.variable} ${plumeFont.variable} ${uncialFont.variable} ${cinzelDecorativeFont.variable} ${frakturFont.variable} ${curvedScriptFont.variable}`}
+        className={`${headingFont.variable} ${monoFont.variable} ${plumeFont.variable} ${uncialFont.variable} ${cinzelDecorativeFont.variable} ${frakturFont.variable} ${curvedScriptFont.variable} ${caveatFont.variable} ${playfairFont.variable}`}
       >
+        {process.env.NODE_ENV === "development" ? (
+          <script
+            dangerouslySetInnerHTML={{
+              __html: `/* dev-only: guard removeChild to avoid HMR races */(function(){try{var _orig=Node.prototype.removeChild;Node.prototype.removeChild=function(c){try{if(!c||!c.parentNode)return c;}catch(e){return c;}return _orig.call(this,c);};}catch(e){} })();`,
+            }}
+          />
+        ) : null}
         <ThemeToggle showControl={false} />
         <AuthProvider>{children}</AuthProvider>
       </body>

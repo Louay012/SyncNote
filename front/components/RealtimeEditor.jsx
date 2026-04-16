@@ -764,7 +764,8 @@ export default function RealtimeEditor({ documentId, wsUrl, authToken, getWsToke
       user={stableUser}
       onCursorOffsetChange={onCursorActivity}
       disabled={false}
-      value={null}
+        value={null}
+        /* story-mode removed */
     />
   );
 }

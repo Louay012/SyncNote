@@ -30,4 +30,13 @@ export const env = {
   graphqlDocsEnabled:
     String(process.env.GRAPHQL_DOCS_ENABLED || "").toLowerCase() === "true" ||
     (process.env.NODE_ENV || "development") !== "production"
+  ,
+  // Yjs persistence tuning
+  yjsSnapshotDebounceMs: Number(process.env.YJS_SNAPSHOT_DEBOUNCE_MS) || 2000,
+  // Persist a full snapshot after this many incremental updates (0 = disabled)
+  yjsSnapshotEveryUpdates: Number(process.env.YJS_SNAPSHOT_EVERY_UPDATES) || 100,
+  // Keep at most this many history rows per document (0 = keep all)
+  yjsHistoryKeepRows: Number(process.env.YJS_HISTORY_KEEP_ROWS) || 1000,
+  // Also delete history rows older than this many days (0 = disabled)
+  yjsHistoryMaxAgeDays: Number(process.env.YJS_HISTORY_MAX_AGE_DAYS) || 30
 };

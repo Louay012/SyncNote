@@ -105,11 +105,7 @@ export default function RichTextEditor({
   disabled,
   onChange,
   // `remoteCursors` (socket/legacy feed) removed — use CollaborationCursor only
-  storyMode = false,
-  onSetEditorStyle,
-  storyPaperId = "aged-scroll",
-  storyPaperOptions = [],
-  onStoryPaperChange,
+  // story-mode removed
   // optional Yjs integration
   ydoc = null,
   provider = null,
@@ -122,7 +118,7 @@ export default function RichTextEditor({
     editor.chain().focus().setMark('textStyle', { fontFamily: fontFamilyValue }).run();
   }
   const [colorValue, setColorValue] = useState("#05668d");
-  const [fontSizeValue, setFontSizeValue] = useState("38");
+  const [fontSizeValue, setFontSizeValue] = useState("20");
   const suppressExternalOnChangeRef = useRef(false);
   const preservedSelectionRef = useRef(null);
   const previousSelectionRef = useRef(null);

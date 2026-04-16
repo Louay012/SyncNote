@@ -1,0 +1,498 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   Diary — Retro / Cartoon Edition
+   Fonts: Bangers (display) · Patrick Hand (handwritten) · Special Elite (typewriter)
+          Merriweather (body) · EB Garamond (elegant)
+───────────────────────────────────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Bangers&family=Patrick+Hand&family=Special+Elite&family=Merriweather:ital,wght@0,300;0,400;0,700;1,300;1,400&family=EB+Garamond:ital,wght@0,400;0,500;1,400&family=Caveat:wght@400;600;700&family=Permanent+Marker&display=swap');
+
+/* ── Custom properties ─────────────────────────────────────────────────────── */
+:root {
+  --font-diary:        'Merriweather', Georgia, serif;
+  --font-handwriting:  'Patrick Hand', 'Segoe Script', cursive;
+  --font-elegant:      'EB Garamond', Garamond, serif;
+  --font-retro:        'Special Elite', 'Courier New', monospace;
+  --font-cartoon:      'Bangers', impact, sans-serif;
+  --font-marker:       'Permanent Marker', cursive;
+  --font-caveat:       'Caveat', cursive;
+
+  --page-width:        min(860px, 92vw);
+  --page-max-width:    920px;
+  --page-min-height:   64vh;
+  --page-radius:       4px; /* sharper corners for cartoon look */
+  --flip-duration:     700ms;
+  --ink:               #1a1209;
+  --ink-outline:       2.5px solid #1a1209;
+
+  /* Cartoon outline widths */
+  --outline-thin:  1.5px solid #1a1209;
+  --outline-thick: 3px   solid #1a1209;
+  --outline-hero:  4px   solid #1a1209;
+}
+
+/* ── Halftone dot overlay (retro print effect) ─────────────────────────────── */
+@keyframes halftone-drift {
+  0%   { background-position: 0 0, 0 0; }
+  100% { background-position: 6px 6px, 6px 6px; }
+}
+
+/* ── Full-screen wrapper ───────────────────────────────────────────────────── */
+.diary-wrapper {
+  display:         flex;
+  flex-direction:  column;
+  align-items:     center;
+  padding:         56px 20px 100px;
+  min-height:      100vh;
+  position:        relative;
+  /* subtle scanline vibe */
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 3px,
+    rgba(0,0,0,0.012) 3px,
+    rgba(0,0,0,0.012) 4px
+  );
+}
+
+/* ── Notebook frame ────────────────────────────────────────────────────────── */
+.notebook-frame {
+  perspective: 1400px;
+  transform:   rotate(-0.8deg);
+  position:    relative;
+  /* cartoon drop shadow — offset hard shadow */
+  filter: drop-shadow(6px 8px 0px rgba(0,0,0,0.35));
+  transition: filter 0.3s ease;
+}
+.notebook-frame:hover {
+  filter: drop-shadow(8px 10px 0px rgba(0,0,0,0.4));
+}
+
+/* ── Paper surface ─────────────────────────────────────────────────────────── */
+.diary-paper {
+  width:      var(--page-width);
+  max-width:  var(--page-max-width);
+  aspect-ratio: 2 / 3;
+  box-sizing: border-box;
+  border-radius: var(--page-radius);
+
+  /* CARTOON: thick ink outline + layered hard shadow */
+  border: var(--outline-hero);
+  box-shadow:
+    5px 5px 0px #1a1209,
+    8px 8px 0px rgba(26,18,9,0.25);
+
+  padding:  28px 32px;
+  position: relative;
+  overflow: hidden;
+  transform-origin: center top;
+  transform-style: preserve-3d;
+  transition: background 0.45s ease, box-shadow 0.3s ease;
+
+  height:     calc(var(--page-width) * 1.5);
+  max-height: calc(100vh - 140px);
+}
+
+/* Halftone + grain texture overlay */
+.diary-paper::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(circle, rgba(0,0,0,0.08) 1px, transparent 1px);
+  background-size: 6px 6px;
+  pointer-events: none;
+  mix-blend-mode: multiply;
+  opacity: 0.18;
+  border-radius: inherit;
+  z-index: 0;
+}
+
+/* Ruled lines */
+.diary-paper::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0px,
+      transparent 28px,
+      rgba(0,0,0,0.035) 28px,
+      rgba(0,0,0,0.035) 29px
+    );
+  background-size: auto;
+  pointer-events: none;
+  mix-blend-mode: multiply;
+  opacity: 0.55;
+  border-radius: var(--page-radius);
+  z-index: 0;
+}
+
+.diary-paper:focus-within {
+  box-shadow:
+    5px 5px 0px #1a1209,
+    8px 8px 0px rgba(26,18,9,0.3),
+    0 0 0 3px rgba(255,200,0,0.35);
+}
+
+/* ── Theme pill buttons ────────────────────────────────────────────────────── */
+.theme-pill {
+  display:         flex;
+  align-items:     center;
+  gap:             5px;
+  padding:         5px 12px;
+  border-radius:   3px;                /* square-ish for cartoon look */
+  font-size:       10px;
+  font-weight:     700;
+  letter-spacing:  0.8px;
+  text-transform:  uppercase;
+  cursor:          pointer;
+  white-space:     nowrap;
+  border:          2px solid #1a1209 !important;
+  /* hard shadow on pills too */
+  box-shadow:      2px 2px 0px #1a1209;
+  transition:      transform 0.13s ease, box-shadow 0.13s ease;
+}
+
+.theme-pill:hover {
+  transform:   translate(-1px, -1px);
+  box-shadow:  3px 3px 0px #1a1209;
+}
+
+.theme-pill.active {
+  transform:   translate(-2px, -2px);
+  box-shadow:  4px 4px 0px #1a1209;
+}
+
+.theme-pill:focus {
+  outline:    none;
+  box-shadow: 0 0 0 3px rgba(255,200,0,0.45), 2px 2px 0px #1a1209;
+}
+
+/* ── Navigation buttons ────────────────────────────────────────────────────── */
+.diary-nav-btn {
+  width:         40px;
+  height:        40px;
+  border-radius: 4px;
+  border:        2.5px solid #1a1209 !important;
+  font-size:     16px;
+  font-weight:   900;
+  display:       flex;
+  align-items:   center;
+  justify-content: center;
+  cursor:        pointer;
+  /* cartoon hard shadow */
+  box-shadow:    3px 3px 0px #1a1209;
+  transition:    transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.diary-nav-btn:not(:disabled):hover {
+  transform:  translate(-1px, -1px);
+  box-shadow: 4px 4px 0px #1a1209;
+}
+
+.diary-nav-btn:not(:disabled):active {
+  transform:  translate(2px, 2px);
+  box-shadow: 1px 1px 0px #1a1209;
+}
+
+.diary-nav-btn:focus {
+  outline:    none;
+  box-shadow: 0 0 0 3px rgba(255,200,0,0.45), 3px 3px 0px #1a1209;
+}
+
+/* ── Add page button ───────────────────────────────────────────────────────── */
+.diary-add-btn {
+  border:     2px solid #1a1209 !important;
+  box-shadow: 3px 3px 0px #1a1209;
+  font-weight: 800;
+  transition: all 0.13s ease !important;
+}
+
+.diary-add-btn:hover:not(:disabled) {
+  transform:   translate(-1px, -2px);
+  box-shadow:  4px 5px 0px #1a1209;
+}
+
+.diary-add-btn:active:not(:disabled) {
+  transform:   translate(1px, 1px);
+  box-shadow:  1px 1px 0px #1a1209;
+}
+
+/* ── Rich editor inside paper ──────────────────────────────────────────────── */
+.diary-paper .rt-editor-content {
+  background:  transparent;
+  box-shadow:  none;
+  border:      none;
+  outline:     none;
+  padding:     0;
+  margin:      0;
+  min-height:  0;
+  font-family: var(--font-diary);
+  font-size:   16px;
+  line-height: 1.9;
+  color:       var(--paper-ink, #1a1209);
+}
+
+.diary-paper .rt-editor-content p {
+  margin: 0 0 14px 0;
+}
+
+/* ── Page content layout ───────────────────────────────────────────────────── */
+.page-content {
+  display:        flex;
+  flex-direction: column;
+  height:         100%;
+  box-sizing:     border-box;
+  padding:        28px 24px;
+  position:       relative;
+  z-index:        1;
+}
+
+.page-body {
+  flex:       1 1 auto;
+  min-height: 0;
+  overflow-y: hidden;
+  padding-bottom: 64px;
+}
+
+/* ── Page flip animations ──────────────────────────────────────────────────── */
+.page {
+  width:       100%;
+  height:      100%;
+  position:    absolute;
+  top: 0; left: 0;
+  transform-origin: center top;
+  backface-visibility: hidden;
+  will-change: transform, box-shadow;
+}
+
+.page.front { z-index: 3; }
+.page.back   { transform: rotateX(180deg); z-index: 1; }
+
+.flip-forward .page.front {
+  animation: flipForward var(--flip-duration) cubic-bezier(0.2, 0.9, 0.2, 1) forwards;
+}
+.flip-back .page.front {
+  animation: flipBack var(--flip-duration) cubic-bezier(0.2, 0.9, 0.2, 1) forwards;
+}
+
+@keyframes flipForward {
+  0%   { transform: rotateX(0deg);    box-shadow: 5px 5px 0 #1a1209; }
+  45%  { transform: rotateX(-92deg);  box-shadow: 10px 18px 0 rgba(0,0,0,0.2); }
+  100% { transform: rotateX(-180deg); box-shadow: none; }
+}
+@keyframes flipBack {
+  0%   { transform: rotateX(-180deg); box-shadow: none; }
+  45%  { transform: rotateX(-92deg);  box-shadow: 10px 18px 0 rgba(0,0,0,0.2); }
+  100% { transform: rotateX(0deg);    box-shadow: 5px 5px 0 #1a1209; }
+}
+
+/* ── Diary flip (entry animation) ─────────────────────────────────────────── */
+@keyframes diaryFlipOut {
+  0%   { transform: perspective(1100px) rotateX(0deg);   opacity: 1;   }
+  100% { transform: perspective(1100px) rotateX(-94deg); opacity: 0.1; }
+}
+@keyframes diaryFlipIn {
+  0%   { transform: perspective(1100px) rotateX(94deg);  opacity: 0.1; }
+  100% { transform: perspective(1100px) rotateX(0deg);   opacity: 1;   }
+}
+.diary-flip-out {
+  animation: diaryFlipOut 0.38s cubic-bezier(0.55, 0.06, 0.68, 0.19) forwards;
+  transform-origin: top center;
+}
+.diary-flip-in {
+  animation: diaryFlipIn 0.38s cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
+  transform-origin: top center;
+}
+
+/* ── Corner fold ───────────────────────────────────────────────────────────── */
+.diary-corner {
+  transition:      transform 0.2s ease;
+  transform-origin: bottom right;
+  /* cartoon outline on corner */
+  border-top:   2px solid rgba(26,18,9,0.3);
+  border-left:  2px solid rgba(26,18,9,0.3);
+}
+.diary-corner:hover {
+  transform: scale(1.5) !important;
+}
+
+/* ── Content editable ──────────────────────────────────────────────────────── */
+  .diary-wrapper [contenteditable]:focus { outline: none; }
+  .diary-wrapper [contenteditable]:hover {
+    background:    rgba(255,220,0,0.1);
+    border-radius: 2px;
+  }
+
+/* ── Spiral rings — cartoon version ───────────────────────────────────────── */
+.spiral-rings > div {
+  border: 2px solid rgba(0,0,0,0.45) !important;
+  box-shadow:
+    0 2px 0 rgba(255,255,255,0.25) inset,
+    0 2px 4px rgba(0,0,0,0.2) !important;
+}
+
+/* ── Stacked pages behind — cartoon style ─────────────────────────────────── */
+
+/* ── Diary-specific editor overrides ──────────────────────────────────────── */
+.diary-wrapper .editor-toolbar,
+.diary-wrapper .rt-toolbar,
+.diary-paper .editor-toolbar,
+.diary-paper .rt-toolbar,
+.diary-wrapper .editor-header,
+.diary-wrapper .toolbar-actions,
+.diary-wrapper .section-title-row {
+  display:    none !important;
+  height:     0 !important;
+  margin:     0 !important;
+  padding:    0 !important;
+  overflow:   hidden !important;
+  visibility: hidden !important;
+}
+
+.diary-wrapper .editor-panel .rt-editor-content,
+.diary-paper .rt-editor-content {
+  border:        none !important;
+  box-shadow:    none !important;
+  background:    transparent !important;
+  padding:       0 !important;
+  margin:        0 !important;
+  min-height:    0 !important;
+  border-radius: 0 !important;
+}
+
+.diary-paper .rt-editor-content p { margin-bottom: 12px; }
+
+/* ── Speech bubble decoration (cartoon splash) ─────────────────────────────── */
+.diary-wrapper .eyebrow-label {
+  font-family:   var(--font-cartoon);
+  font-size:     22px;
+  letter-spacing: 8px;
+  position:      relative;
+}
+
+/* ── Wobbly underline for titles ───────────────────────────────────────────── */
+[contenteditable][data-field="title"] {
+  border-bottom: 3px solid currentColor;
+  border-image:  none;
+}
+
+/* ── Page number — retro stamp ─────────────────────────────────────────────── */
+.page-number {
+  position:    absolute;
+  left:        50%;
+  transform:   translateX(-50%);
+  bottom:      14px;
+  font-size:   11px;
+  font-style:  italic;
+  font-family: var(--font-retro);
+  opacity:     0.6;
+}
+
+/* ── Responsive ────────────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .diary-paper {
+    width:     min(760px, 94%);
+    max-width: 760px;
+  }
+}
+
+@media (max-width: 640px) {
+  .notebook-frame {
+    transform:   none;
+    perspective: none;
+    filter:      drop-shadow(4px 6px 0px rgba(0,0,0,0.3));
+  }
+
+  .diary-paper {
+    width:         calc(100% - 32px);
+    max-width:     none;
+    aspect-ratio:  auto;
+    height:        auto;
+    max-height:    calc(100vh - 140px);
+    padding:       20px;
+    border-radius: 4px;
+    border-width:  2.5px;
+    box-shadow:    3px 4px 0px #1a1209;
+  }
+
+  .diary-floating-nav,
+  .diary-floating-nav-left,
+  .diary-floating-nav-right {
+    display:    none !important;
+    visibility: hidden !important;
+    height:     0 !important;
+    width:      0 !important;
+    overflow:   hidden !important;
+  }
+
+  .spiral-rings { display: none !important; }
+
+  .page.front  { padding: 12px !important; }
+  .page-content { padding: 8px 6px 60px 6px; }
+
+  .diary-paper .rt-editor-content {
+    padding:    16px 12px !important;
+    min-height: calc(50vh);
+    overflow-y: auto;
+  }
+
+  .page-body { overflow-y: auto; }
+
+  .theme-pill {
+    font-size: 9px;
+    padding:   4px 8px;
+  }
+}
+
+@media (max-width: 480px) {
+  .diary-paper { padding: 24px 14px 40px 30px; }
+}
+
+/* ── Accessibility ─────────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .diary-flip-out,
+  .diary-flip-in,
+  .theme-pill,
+  .diary-nav-btn,
+  .diary-corner,
+  .notebook-frame {
+    animation:  none !important;
+    transition: none !important;
+    filter:     none !important;
+  }
+}
+
+/* ── COMIC / RETRO THEME EXTRAS ────────────────────────────────────────────── */
+
+/* Comic theme: halftone dots stronger */
+.diary-paper[data-theme="comic"]::before {
+  background-size: 4px 4px;
+  opacity: 0.28;
+}
+
+/* Typewriter theme: scanline effect */
+.diary-paper[data-theme="typewriter"]::before {
+  background-image:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0px, transparent 1px,
+      rgba(0,0,0,0.04) 1px, rgba(0,0,0,0.04) 2px
+    );
+  background-size: auto 2px;
+  opacity: 1;
+}
+
+/* Neon theme: glow on focus */
+.diary-paper[data-theme="neon"]:focus-within {
+  box-shadow:
+    5px 5px 0px #1a1209,
+    0 0 0 3px rgba(0,255,180,0.4),
+    0 0 28px rgba(0,255,180,0.2);
+}
+
+/* Pop-art theme: strong contrast border */
+.diary-paper[data-theme="popart"] {
+  border-width: 4px;
+  box-shadow: 8px 8px 0px #1a1209;
+}

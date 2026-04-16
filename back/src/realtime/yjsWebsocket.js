@@ -375,30 +375,69 @@ export function createYjsWebsocket(env) {
 
                 const persistenceTimers = new Map();
 
+                // Persist a full snapshot immediately (with basic debounce/in-flight guard)
+                const persistNow = async (docRef) => {
+                  if (!docRef) return;
+                  if (docRef.__persistenceInFlight) return;
+                  docRef.__persistenceInFlight = true;
+                  try {
+                    const snapshot = Y.encodeStateAsUpdate(docRef);
+                    const snapshotBuffer = Buffer.from(snapshot);
+                    // Upsert latest full snapshot for fast restores
+                    await dbQuery(
+                      `INSERT INTO document_snapshots (document_id, snapshot, updated_at) VALUES ($1, $2, now()) ON CONFLICT (document_id) DO UPDATE SET snapshot = EXCLUDED.snapshot, updated_at = EXCLUDED.updated_at`,
+                      [docId, snapshotBuffer]
+                    );
+                    try {
+                      await Document.touchUpdatedAt(docId);
+                    } catch (e) {
+                      // ignore
+                    }
+
+                    // Cleanup history rows according to config
+                    try {
+                      const keepRows = Number(env.yjsHistoryKeepRows || 0);
+                      if (keepRows > 0) {
+                        await dbQuery(
+                          `DELETE FROM document_snapshots_history WHERE document_id = $1 AND id NOT IN (SELECT id FROM document_snapshots_history WHERE document_id = $1 ORDER BY id DESC LIMIT $2)`,
+                          [docId, keepRows]
+                        );
+                      }
+                    } catch (e) {
+                      console.error('yjsWebsocket: history cleanup (keepRows) failed', e && (e.stack || e));
+                    }
+
+                    try {
+                      const maxAge = Number(env.yjsHistoryMaxAgeDays || 0);
+                      if (maxAge > 0) {
+                        await dbQuery(
+                          `DELETE FROM document_snapshots_history WHERE document_id = $1 AND created_at < now() - ($2 * INTERVAL '1 day')`,
+                          [docId, maxAge]
+                        );
+                      }
+                    } catch (e) {
+                      console.error('yjsWebsocket: history cleanup (age) failed', e && (e.stack || e));
+                    }
+                  } catch (err) {
+                    console.error("yjsWebsocket: failed to persist full snapshot", err && (err.stack || err));
+                  } finally {
+                    try { delete docRef.__persistenceInFlight; } catch (e) {}
+                  }
+                };
+
                 const schedulePersist = (docRef) => {
                   if (persistenceTimers.has(roomKeyFromReq)) {
                     clearTimeout(persistenceTimers.get(roomKeyFromReq));
                   }
+                  const debounceMs = Number(env.yjsSnapshotDebounceMs || 2000) || 2000;
                   const t = setTimeout(async () => {
                     persistenceTimers.delete(roomKeyFromReq);
-                      try {
-                        const snapshot = Y.encodeStateAsUpdate(docRef);
-                        const snapshotBuffer = Buffer.from(snapshot);
-                      // Upsert latest full snapshot for fast restores
-                      await dbQuery(
-                        `INSERT INTO document_snapshots (document_id, snapshot, updated_at) VALUES ($1, $2, now()) ON CONFLICT (document_id) DO UPDATE SET snapshot = EXCLUDED.snapshot, updated_at = EXCLUDED.updated_at`,
-                        [docId, snapshotBuffer]
-                      );
-                      try {
-                        await Document.touchUpdatedAt(docId);
-                      } catch (e) {
-                        // ignore
-                      }
-                      // persisted full snapshot
+                    try {
+                      await persistNow(docRef);
                     } catch (err) {
-                      console.error("yjsWebsocket: failed to persist full snapshot", err && (err.stack || err));
+                      console.error('yjsWebsocket: scheduled persist failed', err && (err.stack || err));
                     }
-                  }, 2000);
+                  }, debounceMs);
                   persistenceTimers.set(roomKeyFromReq, t);
                 };
 
@@ -464,8 +503,27 @@ export function createYjsWebsocket(env) {
 
                         // received update
                         const prevLen = Number(docObj.__lastContentLen || 0);
+
                         const buf = Buffer.from(update);
                         await dbQuery(`INSERT INTO document_snapshots_history (document_id, snapshot, saved_by) VALUES ($1, $2, $3)`, [docId, buf, null]);
+
+                        // Increment update counter and optionally persist a full snapshot
+                        try {
+                          docObj.__updateCount = Number(docObj.__updateCount || 0) + 1;
+                          const threshold = Number(env.yjsSnapshotEveryUpdates || 0);
+                          if (threshold > 0 && docObj.__updateCount >= threshold) {
+                            docObj.__updateCount = 0;
+                            if (persistenceTimers.has(roomKeyFromReq)) {
+                              clearTimeout(persistenceTimers.get(roomKeyFromReq));
+                              persistenceTimers.delete(roomKeyFromReq);
+                            }
+                            try { await persistNow(docObj); } catch (e) { /* best-effort */ }
+                          } else {
+                            try { schedulePersist(docObj); } catch (e) { /* ignore */ }
+                          }
+                        } catch (e) {
+                          try { schedulePersist(docObj); } catch (ee) { /* ignore */ }
+                        }
 
                         // compute new content length after applying update
                         try {
@@ -480,7 +538,7 @@ export function createYjsWebsocket(env) {
                       } catch (err) {
                         console.error("yjsWebsocket: failed to append update to history", err && (err.stack || err));
                       }
-                      try { schedulePersist(docObj); } catch (e) { /* ignore */ }
+                      // scheduling moved into update-count logic above
                     };
 
                     try {

@@ -168,6 +168,18 @@ export const typeDefs = `#graphql
     updatedAt: DateTime!
   }
 
+  type DiaryPage {
+    id: ID!
+    documentId: ID!
+    pageNumber: Int!
+    date: DateTime
+    mood: String
+    text: String
+    wordCount: Int!
+    createdAt: DateTime!
+    updatedAt: DateTime!
+  }
+
   type Share {
     id: ID!
     document: Document!
@@ -229,6 +241,7 @@ export const typeDefs = `#graphql
       offset: Int = 0
       unreadOnly: Boolean = false
     ): NotificationPage!
+    listDiaryEntries(documentId: ID!): [DiaryPage!]!
   }
 
   type Mutation {
@@ -275,6 +288,8 @@ export const typeDefs = `#graphql
     # Note: live typing is handled by the Yjs websocket (CRDT + awareness)
     updatePresence(documentId: ID!, sectionId: ID): [Presence!]!
     leaveDocument(documentId: ID!): Boolean!
+    createDiaryEntry(documentId: ID!, date: String, mood: String, text: String!, pageNumber: Int): DiaryPage!
+    updateDiaryEntry(id: ID!, mood: String, text: String!): DiaryPage!
   }
 
   type Subscription {

@@ -1,32 +1,22 @@
 "use client";
 
-import {
-  ApolloProvider,
-  useMutation,
-  useApolloClient,
-  useQuery,
-  gql
-} from "@apollo/client";
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
+import { ApolloProvider, useQuery, useApolloClient, useMutation, gql } from "@apollo/client";
 import { useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import DocumentList from "@/components/DocumentList";
 import { createApolloClient } from "@/lib/apollo";
-import { clearStoredToken, getStoredToken, setStoredToken } from "@/lib/authToken";
 import {
   GET_ME,
-  GET_DOCUMENT,
   GET_MY_DOCUMENTS,
   GET_SHARED_DOCUMENTS,
-  DELETE_DOCUMENT,
+  GET_DOCUMENT,
   SEND_COLLABORATION_INVITE,
-  UPDATE_DOCUMENT,
   UNSHARE_DOCUMENT,
-  SEARCH_DOCUMENTS
+  UPDATE_DOCUMENT,
+  DELETE_DOCUMENT
 } from "@/lib/graphql";
 import { isEmail, toFriendlyError } from "@/lib/uiErrors";
-
-const PAGE_SIZE = 8;
 
 const LIST_DIARY_ENTRIES = gql`
   query ListDiaryEntries($documentId: ID!) {
@@ -36,87 +26,65 @@ const LIST_DIARY_ENTRIES = gql`
   }
 `;
 
-function DocumentsContent({ token, onLogout }) {
+function DiariesInternal() {
   const router = useRouter();
-  const apolloClient = useApolloClient();
+  const client = useApolloClient();
 
-  const [listOffset, setListOffset] = useState(0);
-  const [sortBy, setSortBy] = useState("UPDATED_AT");
-  const [sortDirection, setSortDirection] = useState("DESC");
-  const [searchInput, setSearchInput] = useState("");
-  const [searchKeyword, setSearchKeyword] = useState("");
+  const { data: meData } = useQuery(GET_ME, { fetchPolicy: "cache-and-network" });
+  const { data: myDocsData, refetch: refetchMine } = useQuery(GET_MY_DOCUMENTS, { fetchPolicy: "cache-and-network" });
+  const { data: sharedDocsData, refetch: refetchShared } = useQuery(GET_SHARED_DOCUMENTS, { fetchPolicy: "cache-and-network" });
+
+  const [diaryMy, setDiaryMy] = useState([]);
+  const [diaryShared, setDiaryShared] = useState([]);
+  const [checking, setChecking] = useState(true);
   const [shareDocumentId, setShareDocumentId] = useState("");
   const [collabEmail, setCollabEmail] = useState("");
   const [collabPermission, setCollabPermission] = useState("EDIT");
   const [shareError, setShareError] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [checkingDiaries, setCheckingDiaries] = useState(true);
-  const [nonDiaryMyDocs, setNonDiaryMyDocs] = useState([]);
-  const [nonDiarySharedDocs, setNonDiarySharedDocs] = useState([]);
-
-  const listingVariables = {
-    limit: PAGE_SIZE,
-    offset: listOffset,
-    sortBy,
-    sortDirection
-  };
-
-  const searching = searchKeyword.length >= 2;
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      const nextKeyword = searchInput.trim();
-      setSearchKeyword(nextKeyword);
-      setListOffset(0);
-    }, 250);
+    let mounted = true;
+    async function findDiaries() {
+      setChecking(true);
+      const myDocs = myDocsData?.myDocuments?.items || [];
+      const sharedDocs = sharedDocsData?.sharedWithMeDocuments?.items || [];
+      const docsToCheck = [...myDocs, ...sharedDocs];
 
-    return () => window.clearTimeout(timer);
-  }, [searchInput]);
+      try {
+        const checks = await Promise.all(
+          docsToCheck.map(async (doc) => {
+            try {
+              const res = await client.query({
+                query: LIST_DIARY_ENTRIES,
+                variables: { documentId: doc.id },
+                fetchPolicy: "network-only"
+              });
+              const entries = res?.data?.listDiaryEntries || [];
+              return entries.length ? doc : null;
+            } catch (e) {
+              return null;
+            }
+          })
+        );
 
-  useEffect(() => {
-    setListOffset(0);
-  }, [sortBy, sortDirection]);
+        if (!mounted) return;
+        const diaries = checks.filter(Boolean);
+        setDiaryMy(diaries.filter((d) => String(d.owner.id) === String(meData?.me?.id)));
+        setDiaryShared(diaries.filter((d) => String(d.owner.id) !== String(meData?.me?.id)));
+      } catch (e) {
+        setDiaryMy([]);
+        setDiaryShared([]);
+      } finally {
+        if (mounted) setChecking(false);
+      }
+    }
 
-  const { data: meData } = useQuery(GET_ME, {
-    skip: !token,
-    fetchPolicy: "cache-and-network"
-  });
-
-  const {
-    data: myDocsData,
-    loading: loadingMine,
-    error: myDocsError,
-    refetch: refetchMine
-  } = useQuery(GET_MY_DOCUMENTS, {
-    variables: listingVariables,
-    skip: !token || searching,
-    fetchPolicy: "cache-and-network"
-  });
-
-  const {
-    data: sharedDocsData,
-    loading: loadingShared,
-    error: sharedDocsError,
-    refetch: refetchShared
-  } = useQuery(GET_SHARED_DOCUMENTS, {
-    variables: listingVariables,
-    skip: !token || searching,
-    fetchPolicy: "cache-and-network"
-  });
-
-  const {
-    data: searchDocsData,
-    loading: loadingSearch,
-    error: searchError,
-    refetch: refetchSearch
-  } = useQuery(SEARCH_DOCUMENTS, {
-    variables: {
-      keyword: searchKeyword,
-      ...listingVariables
-    },
-    skip: !token || !searching,
-    fetchPolicy: "cache-and-network"
-  });
+    findDiaries();
+    return () => {
+      mounted = false;
+    };
+  }, [myDocsData, sharedDocsData, meData, client]);
 
   const {
     data: shareDocData,
@@ -124,7 +92,7 @@ function DocumentsContent({ token, onLogout }) {
     refetch: refetchShareDoc
   } = useQuery(GET_DOCUMENT, {
     variables: { id: shareDocumentId },
-    skip: !token || !shareDocumentId,
+    skip: !shareDocumentId,
     fetchPolicy: "cache-and-network"
   });
 
@@ -133,73 +101,8 @@ function DocumentsContent({ token, onLogout }) {
   const [updateDocument, { loading: updatingDocumentVisibility }] = useMutation(UPDATE_DOCUMENT);
   const [deleteDocument, { loading: deletingDocument }] = useMutation(DELETE_DOCUMENT);
 
-  const myDocs = searching
-    ? searchDocsData?.searchDocuments?.items || []
-    : myDocsData?.myDocuments?.items || [];
-  const sharedDocs = searching ? [] : sharedDocsData?.sharedWithMeDocuments?.items || [];
-  const totalMine = myDocsData?.myDocuments?.total || 0;
-  const totalShared = sharedDocsData?.sharedWithMeDocuments?.total || 0;
-  const totalSearch = searchDocsData?.searchDocuments?.total || 0;
-  const activeTotal = searching ? totalSearch : totalMine + totalShared;
-
-  const listingError = myDocsError || sharedDocsError || searchError;
   const selectedShareDoc = shareDocData?.document || null;
-  const shareBusy =
-    sharingDocument || unsharingDocument || loadingShareDoc || updatingDocumentVisibility;
-
-  async function refreshCollections() {
-    if (searching) {
-      await refetchSearch();
-      return;
-    }
-
-    await Promise.all([refetchMine(), refetchShared()]);
-  }
-
-  useEffect(() => {
-    let mounted = true;
-    async function filterDiaries() {
-      setCheckingDiaries(true);
-      try {
-        const docsToCheck = [...(myDocs || []), ...(sharedDocs || [])];
-
-        const checks = await Promise.all(
-          docsToCheck.map(async (doc) => {
-            try {
-              const res = await apolloClient.query({
-                query: LIST_DIARY_ENTRIES,
-                variables: { documentId: doc.id },
-                fetchPolicy: "network-only"
-              });
-              const entries = res?.data?.listDiaryEntries || [];
-              return { id: doc.id, isDiary: entries.length > 0 };
-            } catch (e) {
-              return { id: doc.id, isDiary: false };
-            }
-          })
-        );
-
-        if (!mounted) return;
-        const diaryMap = new Map(checks.map((c) => [c.id, c.isDiary]));
-        setNonDiaryMyDocs((myDocs || []).filter((d) => !diaryMap.get(d.id)));
-        setNonDiarySharedDocs((sharedDocs || []).filter((d) => !diaryMap.get(d.id)));
-      } catch (e) {
-        setNonDiaryMyDocs(myDocs || []);
-        setNonDiarySharedDocs(sharedDocs || []);
-      } finally {
-        if (mounted) setCheckingDiaries(false);
-      }
-    }
-
-    filterDiaries();
-    return () => {
-      mounted = false;
-    };
-  }, [myDocsData, sharedDocsData, searchDocsData, searching, apolloClient, myDocs, sharedDocs]);
-
-  function handleSelectDocument(documentId) {
-    router.push(`/doc/${documentId}`);
-  }
+  const shareBusy = sharingDocument || unsharingDocument || loadingShareDoc || updatingDocumentVisibility;
 
   function openShareModal(documentId) {
     setShareDocumentId(String(documentId || ""));
@@ -278,62 +181,27 @@ function DocumentsContent({ token, onLogout }) {
         }
       });
 
-      await Promise.all([refetchShareDoc(), refreshCollections()]);
+      await Promise.all([refetchShareDoc(), refetchMine(), refetchShared()]);
     } catch (error) {
       setShareError(toFriendlyError(error));
     }
   }
 
-  function handleLogout() {
-    clearStoredToken();
-    apolloClient.clearStore();
-    onLogout();
-    router.replace("/auth");
+  function handleSelectDocument(documentId) {
+    router.push(`/doc/${documentId}`);
   }
 
   return (
-    <AppShell
-      title="All Documents"
-      subtitle={`Signed in as ${meData?.me?.name || "User"}`}
-      onLogout={handleLogout}
-    >
+    <AppShell title="Diaries" subtitle={`Signed in as ${meData?.me?.name || "User"}`}>
       <section className="panel dashboard-toolbar">
-        <div className="dashboard-filters">
-          <input
-            value={searchInput}
-            onChange={(event) => setSearchInput(event.target.value)}
-            placeholder="Search documents"
-          />
-          <select value={sortBy} onChange={(event) => setSortBy(event.target.value)}>
-            <option value="UPDATED_AT">Sort by updated</option>
-            <option value="CREATED_AT">Sort by created</option>
-            <option value="TITLE">Sort by title</option>
-          </select>
-          <select
-            value={sortDirection}
-            onChange={(event) => setSortDirection(event.target.value)}
-          >
-            <option value="DESC">Descending</option>
-            <option value="ASC">Ascending</option>
-          </select>
-        </div>
-        <p className="list-meta">Create new documents from the sidebar.</p>
+        <p className="list-meta">Diaries are documents that contain dated entries.</p>
       </section>
 
-      {listingError ? (
-        <section className="panel notice-panel error-notice">
-          <p>{toFriendlyError(listingError)}</p>
-          <button type="button" onClick={refreshCollections}>
-            Retry
-          </button>
-        </section>
-      ) : null}
-
       <DocumentList
-        myDocs={nonDiaryMyDocs}
-        sharedDocs={nonDiarySharedDocs}
-        showingSearch={searching}
-        totalSearch={totalSearch}
+        myDocs={diaryMy}
+        sharedDocs={diaryShared}
+        showingSearch={false}
+        totalSearch={0}
         activeId={null}
         onSelect={handleSelectDocument}
         onOpenCollaborators={openShareModal}
@@ -342,21 +210,7 @@ function DocumentsContent({ token, onLogout }) {
         canShareDoc={(doc) => String(doc?.owner?.id || "") === String(meData?.me?.id || "")}
         showCreateButton={false}
         onCreate={() => {}}
-        onPrevPage={() => setListOffset((current) => Math.max(current - PAGE_SIZE, 0))}
-        onNextPage={() => setListOffset((current) => current + PAGE_SIZE)}
-        canPrev={listOffset > 0}
-        canNext={listOffset + PAGE_SIZE < activeTotal}
       />
-
-      {!loadingMine && !loadingShared && !loadingSearch && !nonDiaryMyDocs.length && !nonDiarySharedDocs.length ? (
-        <section className="panel notice-panel">
-          <p>No documents yet. Use Create Document in the sidebar to get started.</p>
-        </section>
-      ) : null}
-
-      {loadingMine || loadingShared || loadingSearch || checkingDiaries ? (
-        <p className="list-meta">Loading documents...</p>
-      ) : null}
 
       {shareDocumentId ? (
         <section className="modal-backdrop" role="presentation">
@@ -365,9 +219,9 @@ function DocumentsContent({ token, onLogout }) {
             {shareError ? <p className="field-error">{shareError}</p> : null}
 
             <div className="doc-visibility-control">
-              <label htmlFor="documents-visibility-select">Document visibility</label>
+              <label htmlFor="diaries-visibility-select">Document visibility</label>
               <select
-                id="documents-visibility-select"
+                id="diaries-visibility-select"
                 value={selectedShareDoc?.isPublic ? "PUBLIC" : "PRIVATE"}
                 onChange={(event) => handleUpdateVisibility(event.target.value === "PUBLIC")}
                 disabled={shareBusy || String(selectedShareDoc?.owner?.id) !== String(meData?.me?.id)}
@@ -469,48 +323,23 @@ function DocumentsContent({ token, onLogout }) {
           </article>
         </section>
       ) : null}
+
+      {checking ? (
+        <p className="list-meta">Checking diaries...</p>
+      ) : (!diaryMy.length && !diaryShared.length) ? (
+        <section className="panel notice-panel">
+          <p>No diaries found.</p>
+        </section>
+      ) : null}
     </AppShell>
   );
 }
 
-export default function DocumentsPage() {
-  const router = useRouter();
-  const [token, setToken] = useState("");
-  const [hydrated, setHydrated] = useState(false);
-  const client = useMemo(() => createApolloClient(token), [token]);
-
-  useEffect(() => {
-    const saved = getStoredToken();
-    setToken(saved);
-    setHydrated(true);
-  }, []);
-
-  useEffect(() => {
-    if (!hydrated) {
-      return;
-    }
-
-    if (!token) {
-      router.replace("/auth");
-      return;
-    }
-
-    setStoredToken(token);
-  }, [hydrated, token, router]);
-
-  if (!hydrated) {
-    return (
-      <main className="auth-shell">
-        <section className="panel notice-panel">
-          <p>Preparing documents...</p>
-        </section>
-      </main>
-    );
-  }
-
+export default function DiariesPage() {
+  const client = useMemo(() => createApolloClient(""), []);
   return (
     <ApolloProvider client={client}>
-      <DocumentsContent token={token} onLogout={() => setToken("")} />
+      <DiariesInternal />
     </ApolloProvider>
   );
 }

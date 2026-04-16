@@ -320,6 +320,12 @@ export const UPDATE_DOCUMENT = gql`
   }
 `;
 
+export const DELETE_DOCUMENT = gql`
+  mutation DeleteDocument($id: ID!) {
+    deleteDocument(id: $id)
+  }
+`;
+
 export const CREATE_SECTION = gql`
   mutation CreateSection($documentId: ID!, $title: String!, $parentId: ID) {
     createSection(documentId: $documentId, title: $title, parentId: $parentId) {

@@ -557,6 +557,34 @@ export const resolvers = {
       const user = requireAuth(contextValue);
       return Notification.findByRecipient(user.id, args || {});
     }
+    ,
+    listDiaryEntries: async (_, { documentId }, contextValue) => {
+      const user = contextValue.currentUser || null;
+      ensureObjectId(documentId, "document id");
+      await ensureDocumentAccess(user ? user.id : null, documentId);
+
+      const { rows } = await dbQuery(
+        `
+          SELECT id, document_id, page_number, date, mood, text, word_count, created_at, updated_at
+          FROM diary_pages
+          WHERE document_id = $1
+          ORDER BY page_number ASC
+        `,
+        [documentId]
+      );
+
+      return rows.map((r) => ({
+        id: String(r.id),
+        documentId: String(r.document_id),
+        pageNumber: r.page_number,
+        date: r.date,
+        mood: r.mood,
+        text: r.text,
+        wordCount: r.word_count || 0,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at
+      }));
+    }
   },
 
   Mutation: {
@@ -1500,6 +1528,31 @@ export const resolvers = {
         // best-effort
       }
 
+      // Perform optional history pruning according to server config
+      try {
+        const keepRows = Number(env.yjsHistoryKeepRows || 0);
+        if (keepRows > 0) {
+          await dbQuery(
+            `DELETE FROM document_snapshots_history WHERE document_id = $1 AND id NOT IN (SELECT id FROM document_snapshots_history WHERE document_id = $1 ORDER BY id DESC LIMIT $2)`,
+            [documentId, keepRows]
+          );
+        }
+      } catch (e) {
+        // best-effort cleanup
+      }
+
+      try {
+        const maxAge = Number(env.yjsHistoryMaxAgeDays || 0);
+        if (maxAge > 0) {
+          await dbQuery(
+            `DELETE FROM document_snapshots_history WHERE document_id = $1 AND created_at < now() - ($2 * INTERVAL '1 day')`,
+            [documentId, maxAge]
+          );
+        }
+      } catch (e) {
+        // best-effort cleanup
+      }
+
       return true;
     },
 
@@ -1549,6 +1602,126 @@ export const resolvers = {
       });
 
       return true;
+    },
+
+    createDiaryEntry: async (
+      _,
+      { documentId, date = null, mood = null, text = "", pageNumber = null },
+      contextValue
+    ) => {
+      const user = requireAuth(contextValue);
+      ensureObjectId(documentId, "document id");
+
+      if (!(await canEditDocument(user.id, documentId))) {
+        throw new Error("You do not have permission to edit this document");
+      }
+
+      const safeText = String(text || "");
+      const wordCount = safeText.trim().split(/\s+/).filter(Boolean).length;
+
+      await dbQuery("BEGIN");
+      try {
+        if (pageNumber !== null && pageNumber !== undefined) {
+          const pn = Math.max(1, Number(pageNumber) || 1);
+          await dbQuery(
+            `UPDATE diary_pages SET page_number = page_number + 1 WHERE document_id = $1 AND page_number >= $2`,
+            [documentId, pn]
+          );
+
+          const ins = await dbQuery(
+            `
+              INSERT INTO diary_pages(document_id, page_number, date, mood, text, word_count)
+              VALUES ($1, $2, $3, $4, $5, $6)
+              RETURNING id, document_id, page_number, date, mood, text, word_count, created_at, updated_at
+            `,
+            [documentId, pn, date || null, mood || null, safeText, wordCount]
+          );
+
+          await dbQuery("COMMIT");
+          const r = ins.rows[0];
+          return {
+            id: String(r.id),
+            documentId: String(r.document_id),
+            pageNumber: r.page_number,
+            date: r.date,
+            mood: r.mood,
+            text: r.text,
+            wordCount: r.word_count || 0,
+            createdAt: r.created_at,
+            updatedAt: r.updated_at
+          };
+        }
+
+        const maxRes = await dbQuery(
+          `SELECT COALESCE(MAX(page_number), 0) AS maxp FROM diary_pages WHERE document_id = $1`,
+          [documentId]
+        );
+        const next = (maxRes.rows[0] && (maxRes.rows[0].maxp || 0)) + 1;
+
+        const ins = await dbQuery(
+          `
+            INSERT INTO diary_pages(document_id, page_number, date, mood, text, word_count)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING id, document_id, page_number, date, mood, text, word_count, created_at, updated_at
+          `,
+          [documentId, next, date || null, mood || null, safeText, wordCount]
+        );
+
+        await dbQuery("COMMIT");
+        const r = ins.rows[0];
+        return {
+          id: String(r.id),
+          documentId: String(r.document_id),
+          pageNumber: r.page_number,
+          date: r.date,
+          mood: r.mood,
+          text: r.text,
+          wordCount: r.word_count || 0,
+          createdAt: r.created_at,
+          updatedAt: r.updated_at
+        };
+      } catch (e) {
+        try {
+          await dbQuery("ROLLBACK");
+        } catch (er) {}
+        throw e;
+      }
+    },
+
+    updateDiaryEntry: async (_, { id, mood = null, text = "" }, contextValue) => {
+      const user = requireAuth(contextValue);
+      ensureObjectId(id, "id");
+
+      const found = await dbQuery(`SELECT document_id FROM diary_pages WHERE id = $1`, [id]);
+      if (!found.rows || !found.rows[0]) {
+        throw new Error("Diary entry not found");
+      }
+
+      const documentId = found.rows[0].document_id;
+      if (!(await canEditDocument(user.id, documentId))) {
+        throw new Error("You do not have permission to edit this document");
+      }
+
+      const safeText = String(text || "");
+      const wordCount = safeText.trim().split(/\s+/).filter(Boolean).length;
+
+      const res = await dbQuery(
+        `UPDATE diary_pages SET text = $1, mood = $2, word_count = $3, updated_at = now() WHERE id = $4 RETURNING id, document_id, page_number, date, mood, text, word_count, created_at, updated_at`,
+        [safeText, mood || null, wordCount, id]
+      );
+
+      const r = res.rows[0];
+      return {
+        id: String(r.id),
+        documentId: String(r.document_id),
+        pageNumber: r.page_number,
+        date: r.date,
+        mood: r.mood,
+        text: r.text,
+        wordCount: r.word_count || 0,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at
+      };
     }
   },
 
