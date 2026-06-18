@@ -58,6 +58,8 @@ export const GET_MY_DOCUMENTS = gql`
       items {
         id
         title
+        coverImage
+        coverTitle
         isPublic
         updatedAt
         owner {
@@ -172,6 +174,8 @@ export const GET_DOCUMENT = gql`
     document(id: $id) {
       id
       title
+      coverImage
+      coverTitle
       isPublic
       updatedAt
       owner {
@@ -255,10 +259,12 @@ export const GET_DOCUMENT_PRESENCE = gql`
 `;
 
 export const CREATE_DOCUMENT = gql`
-  mutation CreateDocument($title: String!, $content: String, $isPublic: Boolean) {
-    createDocument(title: $title, content: $content, isPublic: $isPublic) {
+  mutation CreateDocument($title: String!, $content: String, $isPublic: Boolean, $coverImage: String, $coverTitle: String) {
+    createDocument(title: $title, content: $content, isPublic: $isPublic, coverImage: $coverImage, coverTitle: $coverTitle) {
       id
       title
+      coverImage
+      coverTitle
       isPublic
       updatedAt
     }
@@ -310,10 +316,12 @@ export const RESET_PASSWORD = gql`
 `;
 
 export const UPDATE_DOCUMENT = gql`
-  mutation UpdateDocument($id: ID!, $title: String, $content: String, $isPublic: Boolean) {
-    updateDocument(id: $id, title: $title, content: $content, isPublic: $isPublic) {
+  mutation UpdateDocument($id: ID!, $title: String, $content: String, $isPublic: Boolean, $coverImage: String, $coverTitle: String) {
+    updateDocument(id: $id, title: $title, content: $content, isPublic: $isPublic, coverImage: $coverImage, coverTitle: $coverTitle) {
       id
       title
+      coverImage
+      coverTitle
       isPublic
       updatedAt
     }

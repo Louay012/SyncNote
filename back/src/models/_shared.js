@@ -23,6 +23,8 @@ export function mapDocument(row) {
     id: String(row.id),
     title: row.title,
     content: row.content,
+    coverImage: row.cover_image || null,
+    coverTitle: row.cover_title || null,
     isPublic: Boolean(row.is_public),
     owner: String(row.owner_id),
     createdAt: row.created_at,

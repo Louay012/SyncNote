@@ -54,6 +54,8 @@ CREATE TABLE IF NOT EXISTS documents (
 );
 
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS is_public BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS cover_image TEXT;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS cover_title TEXT;
 
 CREATE INDEX IF NOT EXISTS documents_owner_id_idx ON documents(owner_id);
 
@@ -366,3 +368,35 @@ CREATE TABLE IF NOT EXISTS diary_pages (
 
 CREATE INDEX IF NOT EXISTS diary_pages_document_id_idx ON diary_pages(document_id);
 CREATE INDEX IF NOT EXISTS diary_pages_document_page_idx ON diary_pages(document_id, page_number);
+
+-- Sticker catalog: pre-loaded sticker definitions
+CREATE TABLE IF NOT EXISTS sticker_catalog (
+  id TEXT PRIMARY KEY,
+  group_name TEXT NOT NULL DEFAULT 'general',
+  label TEXT NOT NULL,
+  emoji TEXT NOT NULL,
+  tags JSONB NOT NULL DEFAULT '[]'::jsonb,
+  pack_id TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS sticker_catalog_group_idx ON sticker_catalog(group_name);
+CREATE INDEX IF NOT EXISTS sticker_catalog_pack_idx ON sticker_catalog(pack_id);
+
+-- Diary workspace stickers: user-placed stickers on diary pages
+CREATE TABLE IF NOT EXISTS diary_stickers (
+  id BIGSERIAL PRIMARY KEY,
+  document_id BIGINT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  catalog_sticker_id TEXT REFERENCES sticker_catalog(id) ON DELETE SET NULL,
+  emoji TEXT NOT NULL DEFAULT '⭐',
+  label TEXT NOT NULL DEFAULT 'Sticker',
+  x REAL NOT NULL DEFAULT 50,
+  y REAL NOT NULL DEFAULT 50,
+  rotate REAL NOT NULL DEFAULT 0,
+  scale REAL NOT NULL DEFAULT 1.0,
+  z_index INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS diary_stickers_document_id_idx ON diary_stickers(document_id);

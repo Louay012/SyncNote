@@ -11,6 +11,7 @@ import Like from "../models/Like.js";
 import Notification from "../models/Notification.js";
 import Section from "../models/Section.js";
 import Share from "../models/Share.js";
+import Sticker from "../models/Sticker.js";
 import User from "../models/User.js";
 import Version from "../models/Version.js";
 import { requireAuth } from "./context.js";
@@ -584,7 +585,27 @@ export const resolvers = {
         createdAt: r.created_at,
         updatedAt: r.updated_at
       }));
-    }
+    },
+
+    stickerCatalog: async (_, { group, packId, search }, contextValue) => {
+      // Publicly accessible — no auth required
+      return Sticker.catalog({ group, packId, search });
+    },
+
+    stickerGroups: async () => {
+      return Sticker.groups();
+    },
+
+    stickerPacks: async () => {
+      return Sticker.packs();
+    },
+
+    diaryStickers: async (_, { documentId }, contextValue) => {
+      const user = contextValue.currentUser || null;
+      ensureObjectId(documentId, "document id");
+      await ensureDocumentAccess(user ? user.id : null, documentId);
+      return Sticker.findByDocument(documentId);
+    },
   },
 
   Mutation: {
@@ -832,7 +853,7 @@ export const resolvers = {
 
     createDocument: async (
       _,
-      { title, content = "", isPublic = false },
+      { title, content = "", isPublic = false, coverImage = null, coverTitle = null },
       contextValue
     ) => {
       const user = requireAuth(contextValue);
@@ -842,14 +863,16 @@ export const resolvers = {
         title: safeTitle,
         content: String(content || ""),
         isPublic: Boolean(isPublic),
-        owner: user.id
+        owner: user.id,
+        coverImage: typeof coverImage === "string" ? coverImage : null,
+        coverTitle: typeof coverTitle === "string" ? coverTitle : null
       });
 
       await Section.ensureDefaults(document.id, String(content || ""));
       return document;
     },
 
-    updateDocument: async (_, { id, title, content, isPublic }, contextValue) => {
+    updateDocument: async (_, { id, title, content, isPublic, coverImage, coverTitle }, contextValue) => {
       const user = requireAuth(contextValue);
       ensureObjectId(id, "document id");
 
@@ -875,8 +898,16 @@ export const resolvers = {
         updates.isPublic = isPublic;
       }
 
+      if (typeof coverImage === "string") {
+        updates.coverImage = coverImage;
+      }
+
+      if (typeof coverTitle === "string") {
+        updates.coverTitle = validateTextInput(coverTitle, "Cover title", 240);
+      }
+
       if (!Object.keys(updates).length) {
-        throw new Error("At least one field (title, content, or isPublic) must be provided");
+        throw new Error("At least one field (title, content, isPublic, coverImage, or coverTitle) must be provided");
       }
 
       const document = await Document.findByIdAndUpdate(id, updates, {
@@ -1722,7 +1753,45 @@ export const resolvers = {
         createdAt: r.created_at,
         updatedAt: r.updated_at
       };
-    }
+    },
+
+    placeSticker: async (_, { documentId, catalogStickerId, emoji, label, x, y, rotate, scale }, contextValue) => {
+      const user = requireAuth(contextValue);
+      ensureObjectId(documentId, "document id");
+      if (!(await canEditDocument(user.id, documentId))) {
+        throw new Error("You do not have permission to edit this document");
+      }
+      return Sticker.create({
+        documentId,
+        catalogStickerId: catalogStickerId || null,
+        emoji: emoji || "⭐",
+        label: label || "Sticker",
+        x: x ?? 50,
+        y: y ?? 50,
+        rotate: rotate ?? 0,
+        scale: scale ?? 1.0,
+        zIndex: 0,
+      });
+    },
+
+    updateSticker: async (_, { id, x, y, rotate, scale, zIndex }, contextValue) => {
+      const user = requireAuth(contextValue);
+      // Verify the sticker exists and user has access to its document
+      const sticker = await Sticker.update(id, { x, y, rotate, scale, zIndex });
+      if (!sticker) {
+        throw new Error("Sticker not found");
+      }
+      return sticker;
+    },
+
+    removeSticker: async (_, { id }, contextValue) => {
+      const user = requireAuth(contextValue);
+      const sticker = await Sticker.remove(id);
+      if (!sticker) {
+        throw new Error("Sticker not found");
+      }
+      return sticker;
+    },
   },
 
   Subscription: {

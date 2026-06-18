@@ -109,7 +109,8 @@ export default function RichTextEditor({
   // optional Yjs integration
   ydoc = null,
   provider = null,
-  user = null
+  user = null,
+  globalFontSize = null,
 }) {
   const [fontFamilyValue, setFontFamilyValue] = useState(FONT_OPTIONS[0].value);
 
@@ -374,6 +375,28 @@ export default function RichTextEditor({
     // Restore selection
     editor.commands.setTextSelection({ from, to });
   }
+
+  // Apply or clear a global font-size across the entire editor content
+  useEffect(() => {
+    if (!editor) return;
+    try {
+      const docSize = Math.max(Number(editor.state.doc?.content?.size) || 1, 1);
+      preserveSelectionAndRun(() => {
+        const from = 1;
+        const to = docSize;
+        if (!globalFontSize) {
+          // unset font-size mark for entire document
+          editor.chain().focus().setTextSelection({ from, to }).setMark('textStyle', { fontSize: null }).removeEmptyTextStyle().run();
+        } else {
+          let sizeVal = String(globalFontSize).trim();
+          if (/^\d+$/.test(sizeVal)) sizeVal = `${sizeVal}px`;
+          editor.chain().focus().setTextSelection({ from, to }).setMark('textStyle', { fontSize: sizeVal }).run();
+        }
+      });
+    } catch (e) {
+      // ignore failures
+    }
+  }, [editor, globalFontSize]);
 
   function applyColor() {
     preserveSelectionAndRun(() => {

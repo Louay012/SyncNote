@@ -1,9 +1,37 @@
+/* Sakura (kawaii) theme pill enhancement — FIXED for full icon visibility */
+.theme-pill.kawaii, .theme-pill[data-theme="kawaii"] {
+  background: linear-gradient(90deg, #ffe0f4 0%, #ffb6e6 100%);
+  color: #cc4499;
+  border-color: #cc4499 !important;
+    box-shadow: 0 0 0 2px #ffb6e6, 2px 2px 0px #cc4499;
+    position: relative !important;
+    overflow: visible;
+    z-index: 999 !important;
+    padding-left: 2em;
+}
+.theme-pill.kawaii::before, .theme-pill[data-theme="kawaii"]::before {
+  content: "\1F338"; /* Sakura blossom emoji */
+  font-size: 1.1em;
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 99;
+  pointer-events: none;
+  filter: drop-shadow(0 1px 1px #fff6fa);
+}
+.theme-pill.kawaii, .theme-pill[data-theme="kawaii"] {
+  padding-left: 2em;
+}
+.theme-pill.kawaii:focus, .theme-pill[data-theme="kawaii"]:focus {
+  box-shadow: 0 0 0 4px #ffb6e6, 2px 2px 0px #cc4499;
+}
 /* ─────────────────────────────────────────────────────────────────────────────
    Diary — Retro / Cartoon Edition
    Fonts: Bangers (display) · Patrick Hand (handwritten) · Special Elite (typewriter)
           Merriweather (body) · EB Garamond (elegant)
 ───────────────────────────────────────────────────────────────────────────── */
-@import url('https://fonts.googleapis.com/css2?family=Bangers&family=Patrick+Hand&family=Special+Elite&family=Merriweather:ital,wght@0,300;0,400;0,700;1,300;1,400&family=EB+Garamond:ital,wght@0,400;0,500;1,400&family=Caveat:wght@400;600;700&family=Permanent+Marker&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Bangers&family=Patrick+Hand&family=Special+Elite&family=Merriweather:ital,wght@0,300;0,400;0,700;1,300;1,400&family=EB+Garamond:ital,wght@0,400;0,500;1,400&family=Caveat:wght@400;600;700&family=Permanent+Marker&family=Press+Start+2P&family=Nunito:wght@400;600;700;800;900&display=swap');
 
 /* ── Custom properties ─────────────────────────────────────────────────────── */
 :root {
@@ -40,7 +68,7 @@
   display:         flex;
   flex-direction:  column;
   align-items:     center;
-  padding:         56px 20px 100px;
+  padding:         48px 18px 96px;
   min-height:      100vh;
   position:        relative;
   /* subtle scanline vibe */
@@ -51,6 +79,645 @@
     rgba(0,0,0,0.012) 3px,
     rgba(0,0,0,0.012) 4px
   );
+}
+
+.diary-room {
+  position: relative;
+}
+
+.diary-room::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 16% 12%, rgba(255, 236, 190, 0.42), transparent 24%),
+    radial-gradient(circle at 82% 10%, rgba(174, 226, 214, 0.24), transparent 20%),
+    linear-gradient(180deg, rgba(255,255,255,0.2), rgba(0,0,0,0.04));
+  opacity: 0.9;
+  z-index: 0;
+}
+
+.diary-room::after {
+  content: "";
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 30vh;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(124, 88, 56, 0.12), rgba(255,255,255,0.05), rgba(124, 88, 56, 0.1)),
+    repeating-linear-gradient(90deg, rgba(83, 54, 34, 0.08) 0 1px, transparent 1px 92px);
+  z-index: 0;
+}
+
+.diary-room-soft::before { filter: saturate(0.92) sepia(0.08); }
+.diary-room-bright::before { opacity: 1; filter: saturate(1.18) brightness(1.04); }
+.diary-room-quiet::before { opacity: 0.72; filter: saturate(0.75) brightness(0.9); }
+.diary-room-messy::before {
+  background:
+    radial-gradient(circle at 14% 16%, rgba(255, 236, 190, 0.38), transparent 22%),
+    radial-gradient(circle at 78% 18%, rgba(255, 181, 208, 0.28), transparent 21%),
+    radial-gradient(circle at 58% 78%, rgba(192, 235, 214, 0.24), transparent 18%),
+    linear-gradient(180deg, rgba(255,255,255,0.18), rgba(0,0,0,0.05));
+}
+
+.diary-wrapper > * {
+  position: relative;
+  z-index: 1;
+}
+
+.diary-workspace {
+  width: min(1380px, 100%);
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(620px, 1fr) minmax(210px, 250px);
+  gap: 24px;
+  align-items: center;
+}
+
+.diary-book-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+}
+
+.diary-wall,
+.diary-workspace-tools {
+  align-self: stretch;
+  min-height: 560px;
+}
+
+.diary-wall {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.diary-wall-header,
+.workspace-panel-title {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: rgba(45, 31, 24, 0.68);
+}
+
+.diary-wall-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.workspace-chip,
+.mood-button,
+.sticker-button,
+.wall-note button {
+  border: 1px solid rgba(45, 31, 24, 0.22);
+  background: rgba(255, 252, 244, 0.86);
+  color: #2d1f18;
+  cursor: pointer;
+  font-family: var(--font-heading);
+}
+
+.workspace-chip {
+  border-radius: 999px;
+  padding: 7px 10px;
+  font-size: 11px;
+  font-weight: 800;
+  box-shadow: 0 5px 14px rgba(70, 44, 28, 0.1);
+}
+
+.diary-wall-board {
+  position: relative;
+  flex: 1;
+  min-height: 520px;
+  border: 1px solid rgba(91, 56, 36, 0.2);
+  border-radius: 8px;
+  padding: 18px;
+  overflow: hidden;
+  background:
+    linear-gradient(45deg, rgba(255,255,255,0.18), transparent 38%),
+    radial-gradient(circle at 12px 12px, rgba(92, 54, 31, 0.16) 1px, transparent 1.5px),
+    #c99568;
+  background-size: auto, 18px 18px, auto;
+  box-shadow:
+    inset 0 0 0 8px rgba(90, 52, 30, 0.09),
+    0 18px 34px rgba(42, 26, 16, 0.13);
+}
+
+.wall-note {
+  position: relative;
+  width: min(100%, 190px);
+  min-height: 108px;
+  margin: 0 auto 18px;
+  padding: 18px 12px 12px;
+  border-radius: 2px;
+  box-shadow: 0 12px 18px rgba(48, 32, 20, 0.16);
+}
+
+.wall-note::before {
+  content: "";
+  position: absolute;
+  top: 7px;
+  left: 50%;
+  width: 34px;
+  height: 10px;
+  transform: translateX(-50%) rotate(-2deg);
+  border-radius: 2px;
+  background: rgba(255,255,255,0.52);
+  box-shadow: 0 1px 4px rgba(48, 32, 20, 0.12);
+}
+
+.wall-note textarea {
+  width: 100%;
+  min-height: 78px;
+  resize: vertical;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #2d1f18;
+  font-family: var(--font-caveat), cursive;
+  font-size: 21px;
+  line-height: 1.08;
+}
+
+.wall-note button {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-size: 12px;
+  opacity: 0.72;
+}
+
+.wall-sticker-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.placed-sticker {
+  position: absolute;
+  width: 42px;
+  height: 42px;
+  border: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-heading);
+  font-size: 15px;
+  font-weight: 900;
+  color: #322019;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 8px 14px rgba(42, 26, 16, 0.16);
+}
+
+.placed-sticker-love,
+.sticker-love { background: #ffd1e1; }
+.placed-sticker-star,
+.sticker-star { background: #ffe58f; }
+.placed-sticker-flower,
+.sticker-flower { background: #c9f2df; }
+.placed-sticker-moon,
+.sticker-moon { background: #d8e7ff; }
+.placed-sticker-music,
+.sticker-music { background: #e4d6ff; }
+.placed-sticker-check,
+.sticker-check { background: #d9f8b9; }
+
+.diary-workspace-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  justify-content: center;
+}
+
+.workspace-panel {
+  border: 1px solid rgba(45, 31, 24, 0.16);
+  border-radius: 8px;
+  padding: 14px;
+  background: rgba(255, 250, 241, 0.72);
+  box-shadow: 0 16px 30px rgba(48, 32, 20, 0.1);
+  backdrop-filter: blur(10px);
+}
+
+.mood-row,
+.sticker-palette,
+.pet-palette {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 0;
+}
+
+.mood-button {
+  border-radius: 999px;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: capitalize;
+}
+
+.mood-button.active {
+  background: #2d1f18;
+  color: #fffaf1;
+  box-shadow: 0 6px 14px rgba(45, 31, 24, 0.22);
+}
+
+.sticker-button {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  font-weight: 900;
+  font-size: 14px;
+  box-shadow: 0 7px 13px rgba(48, 32, 20, 0.12);
+}
+
+.pet-button {
+  width: 48px;
+  height: 42px;
+  border: 1px solid rgba(64, 45, 37, 0.12);
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.68);
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(78, 52, 36, 0.08);
+}
+
+.pet-button img {
+  max-width: 38px;
+  max-height: 34px;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.sticker-button:hover,
+.pet-button:hover,
+.workspace-chip:hover,
+.mood-button:hover {
+  transform: translateY(-1px);
+}
+
+.workspace-status {
+  display: grid;
+  gap: 7px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: rgba(45, 31, 24, 0.72);
+}
+
+.notebook-frame::before {
+  content: "";
+  position: absolute;
+  left: 6%;
+  right: 6%;
+  bottom: -28px;
+  height: 30px;
+  border-radius: 50%;
+  background: rgba(58, 35, 19, 0.18);
+  filter: blur(15px);
+  z-index: -1;
+}
+
+.diary-room {
+  background:
+    radial-gradient(circle at 18% 12%, rgba(255, 218, 190, 0.38), transparent 26%),
+    radial-gradient(circle at 84% 14%, rgba(204, 232, 224, 0.36), transparent 23%),
+    linear-gradient(135deg, #fff8f1 0%, #f8edf0 46%, #edf6f2 100%) !important;
+}
+
+.diary-room::before {
+  background:
+    radial-gradient(circle at 19% 18%, rgba(255, 255, 255, 0.78), transparent 19%),
+    radial-gradient(circle at 76% 74%, rgba(255, 226, 236, 0.35), transparent 20%),
+    linear-gradient(180deg, rgba(255,255,255,0.48), rgba(255,255,255,0.04));
+}
+
+.diary-room::after {
+  height: 34vh;
+  background:
+    linear-gradient(180deg, transparent, rgba(255,255,255,0.45)),
+    radial-gradient(ellipse at center, rgba(98, 68, 46, 0.12), transparent 68%);
+}
+
+.diary-workspace {
+  width: min(1440px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  align-items: stretch;
+}
+
+.diary-workspace-toolbar {
+  width: min(1120px, 100%);
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border: 1px solid rgba(85, 61, 48, 0.09);
+  border-radius: 8px;
+  background: rgba(255, 253, 249, 0.9);
+  box-shadow: 0 18px 44px rgba(79, 52, 36, 0.12);
+  backdrop-filter: blur(20px) saturate(1.08);
+}
+
+.workspace-tool-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: rgba(52, 37, 31, 0.62);
+  margin-inline: 4px -2px;
+}
+
+.diary-book-zone {
+  position: relative;
+  z-index: 5;
+  width: min(980px, 100%);
+  min-height: 760px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  pointer-events: none;
+}
+
+.diary-book-zone .notebook-frame,
+.diary-book-zone .diary-floating-nav,
+.diary-book-zone .diary-add-btn,
+.diary-book-zone .diary-nav-btn,
+.diary-book-zone button,
+.diary-book-zone [contenteditable],
+.diary-book-zone .rt-editor-content {
+  pointer-events: auto;
+}
+
+.canvas-note {
+  position: absolute;
+  z-index: 8;
+  width: 184px;
+  min-height: 138px;
+  padding: 11px 12px 12px;
+  border: 1px solid rgba(74, 50, 37, 0.1);
+  border-radius: 8px;
+  box-shadow: 0 18px 35px rgba(82, 55, 38, 0.13);
+  transition: box-shadow 0.16s ease, transform 0.16s ease;
+}
+
+.canvas-note:focus-within,
+.canvas-note:hover {
+  box-shadow: 0 22px 42px rgba(82, 55, 38, 0.18);
+}
+
+.canvas-note textarea {
+  width: 100%;
+  min-height: 94px;
+  resize: none;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #35251f;
+  font-family: var(--font-caveat), cursive;
+  font-size: 22px;
+  line-height: 1.05;
+}
+
+.canvas-drag-handle {
+  width: 100%;
+  height: 24px;
+  margin-bottom: 6px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.48);
+  color: rgba(54, 38, 31, 0.62);
+  cursor: grab;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.canvas-drag-handle:active { cursor: grabbing; }
+
+.canvas-remove {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.58);
+  color: rgba(53, 37, 31, 0.62);
+  cursor: pointer;
+}
+
+.canvas-sticker {
+  position: absolute;
+  z-index: 9;
+  width: 54px;
+  height: 54px;
+  border: 1px solid rgba(74, 50, 37, 0.08);
+  border-radius: 18px;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-heading);
+  font-size: 15px;
+  font-weight: 900;
+  color: #322019;
+  cursor: grab;
+  box-shadow: 0 14px 26px rgba(82, 55, 38, 0.14);
+  user-select: none;
+  touch-action: none;
+  overflow: hidden;
+  transition: transform 0.16s ease, box-shadow 0.16s ease;
+}
+
+.canvas-sticker:active {
+  cursor: grabbing;
+  box-shadow: 0 18px 34px rgba(82, 55, 38, 0.2);
+}
+
+.canvas-sticker:hover {
+  box-shadow: 0 20px 36px rgba(82, 55, 38, 0.19);
+}
+
+.canvas-sticker img,
+.sticker-button img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.canvas-sticker-image {
+  width: 68px;
+  height: 68px;
+  padding: 6px;
+  background: rgba(255,255,255,0.72);
+}
+
+.canvas-pet {
+  position: absolute;
+  z-index: 10;
+  width: 96px;
+  min-height: 86px;
+  border: 0;
+  display: grid;
+  place-items: end center;
+  background: transparent;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  padding: 0;
+  filter: drop-shadow(0 14px 12px rgba(62, 40, 28, 0.18));
+  transition: transform 0.18s ease, filter 0.18s ease;
+}
+
+.canvas-pet:active {
+  cursor: grabbing;
+}
+
+.canvas-pet img {
+  max-width: 96px;
+  max-height: 86px;
+  object-fit: contain;
+  pointer-events: none;
+  image-rendering: auto;
+}
+
+.canvas-pet:hover {
+  filter: drop-shadow(0 18px 15px rgba(62, 40, 28, 0.24));
+}
+
+.canvas-pet.is-typing img {
+  animation: petTypingBounce 0.42s ease-in-out infinite alternate;
+}
+
+.canvas-pet.is-typing::after {
+  content: "";
+  position: absolute;
+  right: 12px;
+  top: 16px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #ff8fc7;
+  box-shadow:
+    13px -8px 0 #ffe08a,
+    -10px -11px 0 #aee8d2;
+  animation: petSparklePop 0.7s ease-in-out infinite alternate;
+}
+
+@keyframes petTypingBounce {
+  from { transform: translateY(0) rotate(-1deg) scale(1); }
+  to { transform: translateY(-8px) rotate(2deg) scale(1.04); }
+}
+
+@keyframes petSparklePop {
+  from { opacity: 0.45; transform: translateY(4px) scale(0.82); }
+  to { opacity: 1; transform: translateY(-4px) scale(1); }
+}
+
+.pet-bubble {
+  position: absolute;
+  left: 52%;
+  bottom: calc(100% - 8px);
+  width: max-content;
+  max-width: 150px;
+  padding: 7px 9px;
+  border: 1px solid rgba(68, 45, 34, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 252, 246, 0.94);
+  color: #3a2a22;
+  font-family: var(--font-heading);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+  box-shadow: 0 12px 24px rgba(70, 46, 30, 0.13);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 8px) scale(0.96);
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+
+.pet-bubble::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  width: 10px;
+  height: 10px;
+  background: inherit;
+  border-right: 1px solid rgba(68, 45, 34, 0.14);
+  border-bottom: 1px solid rgba(68, 45, 34, 0.14);
+  transform: translate(-50%, -6px) rotate(45deg);
+}
+
+.canvas-pet:hover .pet-bubble,
+.canvas-pet.is-typing .pet-bubble {
+  opacity: 1;
+  transform: translate(-50%, 0) scale(1);
+}
+
+.canvas-sticker-love,
+.sticker-love { background: linear-gradient(145deg, #ffe7ef, #ffc7db); }
+.canvas-sticker-star,
+.sticker-star { background: linear-gradient(145deg, #fff5c9, #ffe184); }
+.canvas-sticker-flower,
+.sticker-flower { background: linear-gradient(145deg, #e6fbf1, #bff1da); }
+.canvas-sticker-moon,
+.sticker-moon { background: linear-gradient(145deg, #edf3ff, #cbdcff); }
+.canvas-sticker-music,
+.sticker-music { background: linear-gradient(145deg, #f0e8ff, #dccbff); }
+.canvas-sticker-check,
+.sticker-check { background: linear-gradient(145deg, #edffd8, #cdf7a3); }
+
+.workspace-chip,
+.mood-button,
+.sticker-button,
+.pet-button {
+  border-radius: 999px;
+  border: 1px solid rgba(64, 45, 37, 0.12);
+  background: rgba(255, 255, 255, 0.76);
+  color: #34251f;
+  box-shadow: 0 8px 18px rgba(78, 52, 36, 0.07);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.sticker-button {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  padding: 6px;
+  overflow: hidden;
+}
+
+.pet-button {
+  width: 52px;
+  height: 44px;
+  border-radius: 14px;
+}
+
+.workspace-status {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-size: 11px;
+  color: rgba(52, 37, 31, 0.58);
 }
 
 /* ── Notebook frame ────────────────────────────────────────────────────────── */
@@ -111,14 +778,16 @@
   content: '';
   position: absolute;
   inset: 0;
+  /* Ruled lines: spacing follows --rt-line-step (defaults to 28px) and thickness follows --rt-line-thickness */
   background-image:
     repeating-linear-gradient(
       to bottom,
       transparent 0px,
-      transparent 28px,
-      rgba(0,0,0,0.035) 28px,
-      rgba(0,0,0,0.035) 29px
+      transparent calc(var(--rt-line-step, 28px) - var(--rt-line-thickness, 1px)),
+      rgba(0,0,0,0.035) calc(var(--rt-line-step, 28px) - var(--rt-line-thickness, 1px)),
+      rgba(0,0,0,0.035) var(--rt-line-step, 28px)
     );
+  background-position: 0 var(--rt-lines-offset, 76px);
   background-size: auto;
   pointer-events: none;
   mix-blend-mode: multiply;
@@ -228,8 +897,8 @@
   margin:      0;
   min-height:  0;
   font-family: var(--font-diary);
-  font-size:   16px;
-  line-height: 1.9;
+  font-size:   var(--rt-font-size, 16px);
+  line-height: var(--rt-line-multiplier, 1.9);
   color:       var(--paper-ink, #1a1209);
 }
 
@@ -391,6 +1060,36 @@
 
 /* ── Responsive ────────────────────────────────────────────────────────────── */
 @media (max-width: 900px) {
+  .diary-workspace {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+
+  .diary-wall,
+  .diary-workspace-tools {
+    min-height: auto;
+    width: min(760px, 94%);
+    justify-self: center;
+  }
+
+  .diary-wall-board {
+    min-height: 260px;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .wall-note {
+    width: auto;
+    margin: 0;
+  }
+
+  .diary-workspace-tools {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: stretch;
+  }
+
   .diary-paper {
     width:     min(760px, 94%);
     max-width: 760px;
@@ -398,6 +1097,21 @@
 }
 
 @media (max-width: 640px) {
+  .diary-wrapper { padding-inline: 10px; }
+
+  .diary-wall,
+  .diary-workspace-tools {
+    width: calc(100% - 16px);
+  }
+
+  .diary-wall-board {
+    grid-template-columns: 1fr;
+  }
+
+  .diary-workspace-tools {
+    grid-template-columns: 1fr;
+  }
+
   .notebook-frame {
     transform:   none;
     perspective: none;
@@ -495,4 +1209,413 @@
 .diary-paper[data-theme="popart"] {
   border-width: 4px;
   box-shadow: 8px 8px 0px #1a1209;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────────
+   PIXEL / GAME THEME — 8-bit RPG aesthetic
+────────────────────────────────────────────────────────────────────────────── */
+.diary-paper[data-theme="pixel"] {
+  border-width: 4px !important;
+  box-shadow: 8px 8px 0px #1a0a2e, 14px 14px 0px rgba(26,10,46,0.15) !important;
+  image-rendering: pixelated;
+  border-radius: 0px !important; /* perfectly square corners */
+}
+
+/* Scanline overlay for retro CRT monitor feel */
+.diary-paper[data-theme="pixel"]::before {
+  background-image:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0px, transparent 2px,
+      rgba(0,0,0,0.05) 2px, rgba(0,0,0,0.05) 4px
+    );
+  background-size: auto 4px;
+  opacity: 1;
+  mix-blend-mode: normal;
+}
+
+/* Press Start 2P is very small — tweak body text */
+.diary-paper[data-theme="pixel"] {
+  --rt-font-size: 9px;
+  --rt-line-multiplier: 2.4;
+}
+.diary-paper[data-theme="pixel"] .rt-editor-content {
+  letter-spacing: 0.3px;
+}
+
+/* Rainbow glow on focus */
+.diary-paper[data-theme="pixel"]:focus-within {
+  box-shadow:
+    8px 8px 0px #1a0a2e,
+    0 0 0 4px rgba(233,30,99,0.45),
+    0 0 0 8px rgba(63,81,181,0.2) !important;
+}
+
+/* Pixel nav buttons — perfectly square */
+.diary-nav-btn { image-rendering: pixelated; }
+
+/* ──────────────────────────────────────────────────────────────────────────────
+   KAWAII THEME — bubbly cute Japanese style
+────────────────────────────────────────────────────────────────────────────── */
+.diary-paper[data-theme="kawaii"] {
+  border-width: 3px !important;
+  border-color: #cc4499 !important;
+  border-radius: 20px !important;
+  box-shadow:
+    5px 5px 0px #cc4499,
+    9px 9px 0px rgba(204,68,153,0.18) !important;
+}
+
+/* Kawaii: soft sparkle dots overlay */
+.diary-paper[data-theme="kawaii"]::before {
+  background-image:
+    radial-gradient(circle, rgba(255,105,180,0.18) 1.5px, transparent 1.5px),
+    radial-gradient(circle, rgba(218,112,214,0.13) 1px, transparent 1px);
+  background-size: 20px 20px, 34px 34px;
+  background-position: 0 0, 10px 10px;
+  opacity: 1;
+  mix-blend-mode: normal;
+}
+
+/* Pink glow on focus */
+.diary-paper[data-theme="kawaii"]:focus-within {
+  box-shadow:
+    5px 5px 0px #cc4499,
+    9px 9px 0px rgba(204,68,153,0.18),
+    0 0 0 5px rgba(255,105,180,0.3),
+    0 0 28px rgba(255,105,180,0.15) !important;
+}
+
+/* ── Shared cute animations ──────────────────────────────────────────────── */
+@keyframes heartBeat {
+  0%, 100% { transform: scale(1); }
+  14%       { transform: scale(1.22); }
+  28%       { transform: scale(1); }
+  42%       { transform: scale(1.14); }
+  70%       { transform: scale(1); }
+}
+
+@keyframes sparkleFloat {
+  0%   { transform: translateY(0px) rotate(0deg)   scale(1);    opacity: 0.85; }
+  33%  { transform: translateY(-7px) rotate(14deg)  scale(1.1);  opacity: 1; }
+  66%  { transform: translateY(-3px) rotate(-9deg)  scale(0.96); opacity: 0.9; }
+  100% { transform: translateY(0px) rotate(0deg)   scale(1);    opacity: 0.85; }
+}
+
+/* Cute scrollbars */
+.diary-paper[data-theme="pixel"] *::-webkit-scrollbar,
+.diary-paper[data-theme="kawaii"] *::-webkit-scrollbar { width: 6px; }
+.diary-paper[data-theme="pixel"]  *::-webkit-scrollbar-thumb { background: #e91e63; border-radius: 0; }
+.diary-paper[data-theme="kawaii"] *::-webkit-scrollbar-thumb { background: #ff69b4; border-radius: 10px; }
+
+/* ──────────────────────────────────────────────────────────────────────────────
+   DIARY CANVAS — Stickers, Pets, Notes workspace
+────────────────────────────────────────────────────────────────────────────── */
+.diary-workspace {
+  width: 100%;
+  max-width: var(--page-max-width, 920px);
+  margin: 0 auto;
+}
+
+.diary-workspace-toolbar {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.75);
+  backdrop-filter: blur(8px);
+  border: 1.5px solid rgba(17,24,39,0.06);
+}
+
+.diary-room-pixel .diary-workspace-toolbar {
+  border: 2.5px solid #1a0a2e;
+  box-shadow: 3px 3px 0px #1a0a2e;
+  background: #f0ebff;
+}
+
+.diary-room-kawaii .diary-workspace-toolbar {
+  border: 2.5px solid #cc4499;
+  box-shadow: 3px 3px 0px #cc4499;
+  background: #ffe0f4;
+  border-radius: 16px;
+}
+
+.workspace-tool-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  opacity: 0.5;
+  white-space: nowrap;
+}
+
+.sticker-palette {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.sticker-button {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1.5px solid rgba(17,24,39,0.08);
+  background: rgba(255,255,255,0.8);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+  padding: 0;
+}
+
+.sticker-button:hover {
+  transform: scale(1.15) rotate(-3deg);
+  box-shadow: 0 3px 8px rgba(0,0,0,0.12);
+}
+
+.sticker-button:active {
+  transform: scale(0.95);
+}
+
+.sticker-button img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 6px;
+}
+
+.pet-palette {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.pet-button {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(17,24,39,0.08);
+  background: rgba(255,255,255,0.8);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.1s ease;
+  padding: 3px;
+}
+
+.pet-button:hover {
+  transform: scale(1.18);
+}
+
+.pet-button img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.workspace-status {
+  font-size: 10px;
+  opacity: 0.5;
+  font-style: italic;
+}
+
+/* ── Diary Canvas ─────────────────────────────────────────────────────────── */
+.diary-canvas {
+  position: relative;
+  width: 100vw;
+  z-index: 1;
+  overflow: visible;
+  min-height: 80px;
+  /* Span full viewport width, breaking out of constrained parent */
+  left: 50%;
+  margin-left: -50vw;
+  padding-left: calc(50vw - 50%);
+  padding-right: calc(50vw - 50%);
+  /* Visual styling */
+  border: 1px solid rgba(87, 62, 49, 0.08);
+  border-radius: 8px;
+  background:
+    linear-gradient(rgba(120, 91, 72, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(120, 91, 72, 0.035) 1px, transparent 1px),
+    radial-gradient(circle at 50% 42%, rgba(255,255,255,0.9), rgba(255,255,255,0.48) 42%, rgba(255,255,255,0.2) 72%),
+    rgba(255, 251, 246, 0.7);
+  background-size: 44px 44px, 44px 44px, auto, auto;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.72),
+    0 28px 70px rgba(75, 50, 34, 0.12);
+}
+
+.diary-canvas::before {
+  content: "";
+  position: absolute;
+  inset: 22px;
+  border: 1px dashed rgba(122, 86, 65, 0.12);
+  border-radius: 8px;
+  pointer-events: none;
+}
+
+/* ── Canvas Stickers ─────────────────────────────────────────────────────── */
+.canvas-sticker {
+  position: absolute;
+  z-index: 10;
+  border: none;
+  background: transparent;
+  cursor: grab;
+  padding: 0;
+  font-size: 28px;
+  line-height: 1;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: filter 0.15s ease;
+  filter: drop-shadow(0 4px 6px rgba(0,0,0,0.10));
+  width: auto;
+  height: auto;
+  min-width: 32px;
+  min-height: 32px;
+}
+
+.canvas-sticker:hover {
+  filter: drop-shadow(0 6px 12px rgba(0,0,0,0.18)) brightness(1.08);
+  z-index: 20;
+}
+
+.canvas-sticker:active {
+  cursor: grabbing;
+}
+
+.canvas-sticker img {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  pointer-events: none;
+  border-radius: 8px;
+}
+
+/* ── Canvas Pets ──────────────────────────────────────────────────────────── */
+.canvas-pet {
+  position: absolute;
+  z-index: 8;
+  border: none;
+  background: transparent;
+  cursor: grab;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: transform 0.2s ease;
+}
+
+.canvas-pet:active {
+  cursor: grabbing;
+}
+
+.canvas-pet img {
+  width: 52px;
+  height: 52px;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.canvas-pet.is-typing img {
+  animation: petTyping 0.35s ease infinite alternate;
+}
+
+@keyframes petTyping {
+  from { transform: translateY(0px) scale(1); }
+  to   { transform: translateY(-3px) scale(1.03); }
+}
+
+.pet-bubble {
+  position: absolute;
+  top: -28px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(255,255,255,0.92);
+  color: #1a1209;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 10px;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.10);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.canvas-pet:hover .pet-bubble {
+  opacity: 1;
+}
+
+/* ── Canvas Notes ─────────────────────────────────────────────────────────── */
+.canvas-note {
+  position: absolute;
+  z-index: 6;
+  border-radius: 8px;
+  padding: 8px;
+  box-shadow: 2px 3px 8px rgba(0,0,0,0.08);
+  cursor: move;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.canvas-drag-handle {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  background: rgba(0,0,0,0.08);
+  border: none;
+  border-radius: 4px;
+  cursor: grab;
+  font-size: 9px;
+  padding: 2px 6px;
+}
+
+.canvas-note textarea {
+  background: transparent;
+  border: none;
+  resize: none;
+  font-size: 11px;
+  font-family: inherit;
+  color: inherit;
+  outline: none;
+  width: 100%;
+  min-width: 80px;
+  min-height: 36px;
+}
+
+.canvas-remove {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  background: rgba(200,40,40,0.1);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 9px;
+  padding: 1px 6px;
+  opacity: 0.5;
+  transition: opacity 0.15s ease;
+}
+
+.canvas-remove:hover {
+  opacity: 1;
+  background: rgba(200,40,40,0.2);
 }

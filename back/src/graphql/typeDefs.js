@@ -1,4 +1,4 @@
-export const typeDefs = `#graphql
+ export const typeDefs = `#graphql
   scalar DateTime
   scalar JSON
 
@@ -91,6 +91,8 @@ export const typeDefs = `#graphql
     id: ID!
     title: String!
     content: String!
+    coverImage: String
+    coverTitle: String
     snapshotBase64: String
     isPublic: Boolean!
     owner: User!
@@ -180,6 +182,40 @@ export const typeDefs = `#graphql
     updatedAt: DateTime!
   }
 
+  type StickerCatalogItem {
+    id: ID!
+    group: String!
+    label: String!
+    emoji: String!
+    tags: [String!]!
+    packId: String
+  }
+
+  type StickerGroup {
+    groupName: String!
+    count: Int!
+  }
+
+  type DiarySticker {
+    id: ID!
+    documentId: ID!
+    catalogStickerId: String
+    emoji: String!
+    label: String!
+    x: Float!
+    y: Float!
+    rotate: Float!
+    scale: Float!
+    zIndex: Int!
+    createdAt: DateTime!
+    updatedAt: DateTime!
+  }
+
+  type StickerPack {
+    packId: String!
+    groupName: String!
+  }
+
   type Share {
     id: ID!
     document: Document!
@@ -242,6 +278,10 @@ export const typeDefs = `#graphql
       unreadOnly: Boolean = false
     ): NotificationPage!
     listDiaryEntries(documentId: ID!): [DiaryPage!]!
+    stickerCatalog(group: String, packId: String, search: String): [StickerCatalogItem!]!
+    stickerGroups: [StickerGroup!]!
+    stickerPacks: [StickerPack!]!
+    diaryStickers(documentId: ID!): [DiarySticker!]!
   }
 
   type Mutation {
@@ -254,8 +294,8 @@ export const typeDefs = `#graphql
     requestPasswordReset(email: String!): Boolean!
     resetPassword(token: String!, newPassword: String!): Boolean!
 
-    createDocument(title: String!, content: String, isPublic: Boolean = false): Document!
-    updateDocument(id: ID!, title: String, content: String, isPublic: Boolean): Document!
+    createDocument(title: String!, content: String, isPublic: Boolean = false, coverImage: String, coverTitle: String): Document!
+    updateDocument(id: ID!, title: String, content: String, isPublic: Boolean, coverImage: String, coverTitle: String): Document!
     deleteDocument(id: ID!): Boolean!
 
     createSection(documentId: ID!, title: String!, parentId: ID): Section!
@@ -290,6 +330,9 @@ export const typeDefs = `#graphql
     leaveDocument(documentId: ID!): Boolean!
     createDiaryEntry(documentId: ID!, date: String, mood: String, text: String!, pageNumber: Int): DiaryPage!
     updateDiaryEntry(id: ID!, mood: String, text: String!): DiaryPage!
+    placeSticker(documentId: ID!, catalogStickerId: String, emoji: String!, label: String, x: Float, y: Float, rotate: Float, scale: Float): DiarySticker!
+    updateSticker(id: ID!, x: Float, y: Float, rotate: Float, scale: Float, zIndex: Int): DiarySticker!
+    removeSticker(id: ID!): DiarySticker!
   }
 
   type Subscription {

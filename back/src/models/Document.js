@@ -2,7 +2,7 @@ import { query } from "../db/postgres.js";
 import { mapDocument } from "./_shared.js";
 
 const baseSelect =
-  "SELECT id, title, content, is_public, owner_id, created_at, updated_at FROM documents";
+  "SELECT id, title, content, cover_image, cover_title, is_public, owner_id, created_at, updated_at FROM documents";
 
 function mapSortField(sortBy = "UPDATED_AT") {
   const sortMap = {
@@ -126,14 +126,14 @@ const Document = {
     });
   },
 
-  async create({ title, content = "", owner, isPublic = false }) {
+  async create({ title, content = "", owner, isPublic = false, coverImage = null, coverTitle = null }) {
     const { rows } = await query(
       `
-        INSERT INTO documents(title, content, is_public, owner_id)
-        VALUES ($1, $2, $3, $4)
-        RETURNING id, title, content, is_public, owner_id, created_at, updated_at
+        INSERT INTO documents(title, content, cover_image, cover_title, is_public, owner_id)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING id, title, content, cover_image, cover_title, is_public, owner_id, created_at, updated_at
       `,
-      [title, content, Boolean(isPublic), owner]
+      [title, content, coverImage, coverTitle, Boolean(isPublic), owner]
     );
 
     return mapDocument(rows[0]);
@@ -158,6 +158,16 @@ const Document = {
       sets.push(`is_public = $${values.length}`);
     }
 
+    if (Object.hasOwn(updates, "coverImage")) {
+      values.push(updates.coverImage);
+      sets.push(`cover_image = $${values.length}`);
+    }
+
+    if (Object.hasOwn(updates, "coverTitle")) {
+      values.push(updates.coverTitle);
+      sets.push(`cover_title = $${values.length}`);
+    }
+
     if (!sets.length) {
       return options.new ? this.findById(id) : null;
     }
@@ -169,7 +179,7 @@ const Document = {
         UPDATE documents
         SET ${sets.join(", ")}, updated_at = NOW()
         WHERE id = $${values.length}
-        RETURNING id, title, content, is_public, owner_id, created_at, updated_at
+        RETURNING id, title, content, cover_image, cover_title, is_public, owner_id, created_at, updated_at
       `,
       values
     );
