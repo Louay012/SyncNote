@@ -10,6 +10,7 @@ It includes:
 - Section comments and version snapshots
 - Invitations and notifications
 - Public discovery and document likes
+- Diary workspace with 3D interactive book UI
 - Realtime subscriptions (sections/comments/typing/presence/notifications)
 - Live remote cursor streaming with Socket.IO
 - Generated GraphQL docs using Magidoc
@@ -71,6 +72,12 @@ Main frontend flow:
 - Like/unlike public documents
 - Notification center for likes and invitation events
 - Mark notifications as read
+
+### Diary workspace
+
+- 3D interactive diary book with animated pages and cover
+- Sticker catalog with selectable stickers to decorate diary pages
+- Dedicated diary layout with immersive reading/writing experience
 
 ### Realtime
 
